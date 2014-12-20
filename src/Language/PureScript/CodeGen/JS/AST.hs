@@ -19,7 +19,7 @@ module Language.PureScript.CodeGen.JS.AST where
 
 import Data.Data
 
-import Debug.Trace
+import Debug.Trace ()
 
 -- |
 -- Built-in unary operators
@@ -174,7 +174,7 @@ data JS
   -- |
   -- A function introduction (optional name, arguments, body)
   --
-  | JSFunction' (Maybe String) [(String,String, Maybe String)] (JS,String)
+  | JSFunction' (Maybe String) [String] (JS, Maybe String)
   -- |
   -- A function introduction (optional name, arguments, body)
   --
@@ -350,11 +350,5 @@ everythingOnJS (<>) f = go
   go j@(JSInstanceOf j1 j2) = f j <> go j1 <> go j2
   go other = f other
 
-fst' :: (a, b, c) -> a
-fst' (a, _, _) = a
-
-fillargs :: [String] -> [(String, String, Maybe String)]
-fillargs args = zip3 args (repeat "") (repeat Nothing)
-
-mkret :: String -> JS -> (JS, String)
+mkret :: Maybe String -> JS -> (JS, Maybe String)
 mkret t js = (js, t)

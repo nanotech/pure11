@@ -18,7 +18,7 @@ module Language.PureScript.Pretty.JS (
 ) where
 
 import Language.PureScript.Pretty.Common
-import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual)
+import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType)
 import Language.PureScript.CodeGen.JS.AST
 
 import Data.List
@@ -31,7 +31,7 @@ import Control.Applicative
 import Control.Monad.State
 import Numeric
 
-import Debug.Trace
+import Debug.Trace ()
 
 literals :: Pattern PrinterState JS String
 literals = mkPattern' match
@@ -80,29 +80,23 @@ literals = mkPattern' match
                                   return "\n",
                                   return $ "}"]
     else case value of
-      (Just (JSFunction' Nothing [(arg,aty,pty)] (ret,rty))) ->
+      (Just (JSFunction' Nothing [arg] (ret,rty))) ->
           if '.' `elem` ident then [return "func ",
                                     return (unqual ident),
-                                    return (parens $ argWithTy arg aty pty),
+                                    return (parens arg),
                                     return " ",
-                                    return rty,
+                                    return (fromMaybe "" rty),
                                     return " ",
-                                    maybe (return "") prettyPrintJS' (Just (body arg pty ret))]
+                                    maybe (return "") prettyPrintJS' value]
                               else [return "var ",
                                     return ident,
                                     return " func ",
-                                    return (parens aty),
+                                    return (parens anyType),
                                     return " ",
-                                    return rty,
+                                    return (fromMaybe "" rty),
                                     return "; ",
                                     return ident,
                                     maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
-                              where
-                                body arg Nothing ret = ret
-                                body arg pty (JSBlock stmts) =
-                                    JSBlock (JSVariableIntroduction
-                                               arg (Just (JSVar $ arg ++ "_." ++ parens (fromMaybe "" pty))) : stmts)
-                                body _ _ ret = ret
       (Just (JSInit a b)) ->
            [return "var ",
             return (unqual ident),
@@ -219,7 +213,7 @@ lam = mkPattern match
   match (JSFunction name args ret) = Just ((name, args), ret)
   match _ = Nothing
 
-lam' :: Pattern PrinterState JS ((Maybe String, [(String, String, Maybe String)], String), JS)
+lam' :: Pattern PrinterState JS ((Maybe String, [String], Maybe String), JS)
 lam' = mkPattern match
   where
   match (JSFunction' name args (ret,rty)) = Just ((name, args, rty), ret)
@@ -316,10 +310,11 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                         ++ ret ]
                   , [ Wrap lam' $ \(name, args, rty) ret -> "func "
                         ++ fromMaybe "" name
-                        ++ parens (intercalate "," (map (applyTriple argWithTy) args))
+                        ++ parens (intercalate "," args)
                         ++ " "
-                        ++ rty ++ " "
-                        ++ (body ret (map (\(arg,_,pty) -> (arg,pty)) args)) ]
+                        ++ fromMaybe "" rty 
+                        ++ " "
+                        ++ ret ]
                   , [ Wrap dat' $ \name fields -> "\n"
                         ++ "type "
                         ++ name
@@ -353,16 +348,9 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ binary    Or                   "||" ]
                   , [ Wrap conditional $ \(th, el) cond -> cond ++ " ? " ++ prettyPrintJS1 th ++ " : " ++ prettyPrintJS1 el ]
                     ]
-                  where
-                    body ret [] = ret
-                    body ret [(arg, pty)] = case pty of Nothing -> ret
-                                                        _       -> (take 2 ret)
-                                                                ++ (takeWhile (\c -> isSpace c) (drop 2 ret))
-                                                                ++ arg ++ " := " ++ arg ++ "_." ++ parens (fromMaybe "" pty)
-                                                                ++ (drop 1 ret)
-argWithTy "__unused" _ _ = ""
-argWithTy arg aty pty = arg ++ (case pty of Nothing -> " "
-                                            _       -> "_ ") ++ aty
 
-applyTriple :: (a -> b -> c -> d) -> (a,b,c) -> d
-applyTriple f (x,y,z) = f x y z
+-- argWithTy "__unused" _ _ = ""
+-- argWithTy arg aty pty = arg ++ (case pty of Nothing -> " "
+--                                             _       -> "_ ") ++ aty
+-- applyTriple :: (a -> b -> c -> d) -> (a,b,c) -> d
+-- applyTriple f (x,y,z) = f x y z
