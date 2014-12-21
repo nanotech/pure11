@@ -42,7 +42,7 @@ literals = mkPattern' match
   match (JSBooleanLiteral True) = return "true"
   match (JSBooleanLiteral False) = return "false"
   match (JSArrayLiteral []) = fmap concat $ sequence
-    [ return "[]Any{}"
+    [ return $ "[]" ++ anyType ++ "{}"
     , return ""
     ]
   match (JSArrayLiteral xs) = fmap concat $ sequence
@@ -80,21 +80,21 @@ literals = mkPattern' match
                                   return "\n",
                                   return $ "}"]
     else case value of
-      (Just (JSFunction' Nothing [arg] (ret,rty))) ->
+      (Just (JSFunction Nothing [arg] ret)) ->
           if '.' `elem` ident then [return "func ",
                                     return (unqual ident),
                                     return (parens arg),
                                     return " ",
-                                    return (fromMaybe "" rty),
+                                    return anyType, -- TODO: look for JSReturn and set accordingly?
                                     return " ",
-                                    maybe (return "") prettyPrintJS' value]
+                                    prettyPrintJS' ret]
                               else [return "var ",
                                     return ident,
                                     return " func ",
                                     return (parens anyType),
                                     return " ",
-                                    return (fromMaybe "" rty),
-                                    return "; ",
+                                    return anyType, -- TODO: look for JSReturn and set accordingly?
+                                    return "; ", -- TODO: line break and align
                                     return ident,
                                     maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
       (Just (JSInit a b)) ->
@@ -213,12 +213,6 @@ lam = mkPattern match
   match (JSFunction name args ret) = Just ((name, args), ret)
   match _ = Nothing
 
-lam' :: Pattern PrinterState JS ((Maybe String, [String], Maybe String), JS)
-lam' = mkPattern match
-  where
-  match (JSFunction' name args (ret,rty)) = Just ((name, args, rty), ret)
-  match _ = Nothing
-
 dat' :: Pattern PrinterState JS (String, JS)
 dat' = mkPattern match
   where
@@ -304,15 +298,10 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ Wrap app $ \args val -> val ++ parens args ]
                   , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "}" ]
                   , [ unary JSNew "new " ]
-                  , [ Wrap lam $ \(name, args) ret -> "function "
+                  , [ Wrap lam $ \(name, args) ret -> "func "
                         ++ fromMaybe "" name
                         ++ "(" ++ intercalate ", " args ++ ") "
-                        ++ ret ]
-                  , [ Wrap lam' $ \(name, args, rty) ret -> "func "
-                        ++ fromMaybe "" name
-                        ++ parens (intercalate "," args)
-                        ++ " "
-                        ++ fromMaybe "" rty 
+                        ++ anyType
                         ++ " "
                         ++ ret ]
                   , [ Wrap dat' $ \name fields -> "\n"
@@ -348,9 +337,3 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ binary    Or                   "||" ]
                   , [ Wrap conditional $ \(th, el) cond -> cond ++ " ? " ++ prettyPrintJS1 th ++ " : " ++ prettyPrintJS1 el ]
                     ]
-
--- argWithTy "__unused" _ _ = ""
--- argWithTy arg aty pty = arg ++ (case pty of Nothing -> " "
---                                             _       -> "_ ") ++ aty
--- applyTriple :: (a -> b -> c -> d) -> (a,b,c) -> d
--- applyTriple f (x,y,z) = f x y z
