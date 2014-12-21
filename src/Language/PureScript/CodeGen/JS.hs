@@ -24,6 +24,7 @@ module Language.PureScript.CodeGen.JS (
     anyType,
     funcDecl,
     appFn,
+    anyList,
     dotsTo,
     withSpace
 ) where
@@ -52,7 +53,7 @@ import qualified Language.PureScript.Constants as C
 import Data.Char (isLower, toUpper)
 import Language.PureScript.Types
 
-import Debug.Trace ()
+import Debug.Trace
 
 -- |
 -- Generate code in the simplified Javascript intermediate representation for all declarations in a
@@ -387,7 +388,7 @@ binderToJs m e varName done (ObjectBinder bs) = go done bs
     return (JSVariableIntroduction propVar (Just (accessorString prop (JSVar varName))) : js)
 binderToJs m e varName done (ArrayBinder bs) = do
   js <- go done 0 bs
-  return [JSIfElse (JSBinary EqualTo (JSApp (JSVar "len") [JSVar varName]) (JSNumericLiteral (Left (fromIntegral $ length bs)))) (JSBlock js) Nothing]
+  return [JSIfElse (JSBinary EqualTo (listLen (JSVar varName)) (JSNumericLiteral (Left (fromIntegral $ length bs)))) (JSBlock js) Nothing]
   where
   go :: (Functor m, Applicative m, Monad m) => [JS] -> Integer -> [Binder] -> SupplyT m [JS]
   go done' _ [] = return done'
@@ -405,7 +406,7 @@ binderToJs m e varName done binder@(ConsBinder _ _) = do
     return (JSVariableIntroduction headVar (Just (JSIndexer (JSNumericLiteral (Left index)) (JSVar varName))) : jss)) done (zip headBinders [0..])
   tailVar <- freshName
   js2 <- binderToJs m e tailVar js1 tailBinder
-  return [JSIfElse (JSBinary GreaterThanOrEqualTo (JSApp (JSVar "len") [JSVar varName]) (JSNumericLiteral (Left numberOfHeadBinders))) (JSBlock
+  return [JSIfElse (JSBinary GreaterThanOrEqualTo (listLen (JSVar varName)) (JSNumericLiteral (Left numberOfHeadBinders))) (JSBlock
     ( JSVariableIntroduction tailVar (Just (JSIndexer (JSVar (show numberOfHeadBinders ++ ":")) (JSVar varName))) :
       js2
     )) Nothing]
@@ -456,6 +457,9 @@ anyFunc  = funcDecl ++ parens (anyType) ++ withSpace anyType
 appFn :: String
 appFn = "appFn"
 
+anyList :: String
+anyList = "[]" ++ anyType
+
 --
 -- funcType :: String
 -- funcType = anyFunc
@@ -475,7 +479,7 @@ appFnDef :: [JS]
 appFnDef = map JSRaw [
               funcDecl ++ appFn ++ parens ("f " ++ anyType ++ ", args ..." ++ anyType) ++ " " ++ anyType ++ " {"
             , "  app := f"
-            , "  for arg := range args {"
+            , "  for _, arg := range args {"
             , "    app = app." ++ parens (anyFunc) ++ "(arg)"
             , "  }"
             , "  return app"
@@ -488,3 +492,9 @@ parens s = ('(':s) ++ ")"
 withSpace :: String -> String
 withSpace [] = []
 withSpace s = (' ' : s)
+
+-- TODO: Should type casts be done in this module or in Pretty?
+--
+
+listLen :: JS -> JS
+listLen l = JSApp' (JSVar "len") [JSAccessor (parens anyList) l]

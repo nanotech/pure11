@@ -18,7 +18,7 @@ module Language.PureScript.Pretty.JS (
 ) where
 
 import Language.PureScript.Pretty.Common
-import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType, funcDecl, appFn, withSpace)
+import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType, funcDecl, appFn, anyList, withSpace)
 import Language.PureScript.CodeGen.JS.AST
 
 import Data.List
@@ -42,7 +42,7 @@ literals = mkPattern' match
   match (JSBooleanLiteral True) = return "true"
   match (JSBooleanLiteral False) = return "false"
   match (JSArrayLiteral []) = fmap concat $ sequence
-    [ return $ "[]" ++ anyType ++ "{}"
+    [ return $ anyList ++ "{}"
     , return ""
     ]
   match (JSArrayLiteral xs) = fmap concat $ sequence
@@ -80,14 +80,20 @@ literals = mkPattern' match
                                   return "\n",
                                   return $ "}"]
     else case value of
-      (Just (JSFunction Nothing [arg] ret)) ->
-          if '.' `elem` ident then [return funcDecl,
+      (Just (JSFunction Nothing [arg] (JSBlock ret))) ->
+          if '.' `elem` ident then let arg' = argOnly arg
+                                       typ' = typeOnly arg in
+                                   [return funcDecl,
                                     return (unqual ident),
-                                    return . parens $ addTypeIfNeeded arg,
+                                    return . parens $ arg' ++ withSpace anyType,
                                     return " ",
                                     return anyType, -- TODO: look for JSReturn and set accordingly?
                                     return " ",
-                                    prettyPrintJS' ret]
+                                    prettyPrintJS' . JSBlock $
+                                    if typ' == anyType
+                                      then ret
+                                      else [JSBlock (JSVariableIntroduction arg' (Just $ withCast (JSVar arg') typ') : ret)]
+                                    ]
                               else [return "var ",
                                     return ident,
                                     return $ withSpace funcDecl,
@@ -208,7 +214,7 @@ accessor = mkPattern match
 indexer :: Pattern PrinterState JS (String, JS)
 indexer = mkPattern' match
   where
-  match (JSIndexer index val) = (,) <$> prettyPrintJS' index <*> pure val
+  match (JSIndexer index val) = (,) <$> prettyPrintJS' index <*> pure (withCast val anyList)
   match _ = mzero
 
 lam :: Pattern PrinterState JS ((Maybe String, [String]), JS)
@@ -230,6 +236,14 @@ app = mkPattern' match
     fn <- prettyPrintJS' val
     jss <- mapM prettyPrintJS' args
     return (intercalate ", " (fn : jss), val)
+  match _ = mzero
+
+app' :: Pattern PrinterState JS (String, JS)
+app' = mkPattern' match
+  where
+  match (JSApp' val args) = do
+    jss <- mapM prettyPrintJS' args
+    return (intercalate ", " jss, val)
   match _ = mzero
 
 init' :: Pattern PrinterState JS (String, JS)
@@ -301,6 +315,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
     OperatorTable [ [ Wrap accessor $ \prop val -> val ++ "." ++ prop ]
                   , [ Wrap indexer $ \index val -> val ++ "[" ++ index ++ "]" ]
                   , [ Wrap app $ \args _ -> appFn ++ parens args ]
+                  , [ Wrap app' $ \args val -> val ++ "(" ++ args ++ ")" ]
                   , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "}" ]
                   , [ unary JSNew "new " ]
                   , [ Wrap lam $ \(name, args) ret -> funcDecl
@@ -348,9 +363,21 @@ addTypeIfNeeded :: String -> String
 addTypeIfNeeded [] = []
 addTypeIfNeeded s = s ++ if length (words s) > 1 then [] else withSpace anyType
 
+argOnly :: String -> String
+argOnly = head . words
+
+typeOnly :: String -> String
+typeOnly s
+  | length (words s) > 1 = intercalate " " . tail $ words s
+  | otherwise = anyType
+
+withCast :: JS -> String -> JS
+withCast js ty = JSAccessor (parens ty) js
+
 condition :: JS -> JS
 condition cond = case cond of
-                   (JSVar _)         -> JSBinary EqualTo cond (JSBooleanLiteral True)
-                   (JSUnary Not c)   -> JSBinary EqualTo c (JSBooleanLiteral False)
-                   (JSBinary op a b) -> JSBinary op (condition a) (condition b)
-                   _                 -> cond
+                   (JSVar _)          -> JSBinary EqualTo cond (JSBooleanLiteral True)
+                   (JSUnary Not c)    -> JSBinary EqualTo c (JSBooleanLiteral False)
+                   (JSBinary And a b) -> JSBinary And (condition a) (condition b)
+                   (JSBinary Or a b)  -> JSBinary Or (condition a) (condition b)
+                   _                  -> cond

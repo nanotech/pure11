@@ -181,6 +181,10 @@ data JS
   --
   | JSApp JS [JS]
   -- |
+  -- Function application (for foreign calls)
+  --
+  | JSApp' JS [JS]
+  -- |
   -- Init struct
   --
   | JSInit JS [JS]
@@ -270,6 +274,7 @@ everywhereOnJS f = go
   go (JSFunction name args j) = f (JSFunction name args (go j))
   go (JSData' name fields) = f (JSData' name fields)
   go (JSApp j js) = f (JSApp (go j) (map go js))
+  go (JSApp' j js) = f (JSApp' (go j) (map go js))
   go (JSInit j js) = f (JSInit (go j) (map go js))
   go (JSConditional j1 j2 j3) = f (JSConditional (go j1) (go j2) (go j3))
   go (JSBlock js) = f (JSBlock (map go js))
@@ -299,6 +304,7 @@ everywhereOnJSTopDown f = go . f
   go (JSFunction name args j) = JSFunction name args (go (f j))
   go (JSData' name fields) = JSData' name fields
   go (JSApp j js) = JSApp (go (f j)) (map (go . f) js)
+  go (JSApp' j js) = JSApp' (go (f j)) (map (go . f) js)
   go (JSInit j js) = JSInit (go (f j)) (map (go . f) js)
   go (JSConditional j1 j2 j3) = JSConditional (go (f j1)) (go (f j2)) (go (f j3))
   go (JSBlock js) = JSBlock (map (go . f) js)
@@ -327,6 +333,7 @@ everythingOnJS (<>) f = go
   go j@(JSFunction _ _ j1) = f j <> go j1
   go j@(JSData' _ j1) = f j <> go j1
   go j@(JSApp j1 js) = foldl (<>) (f j <> go j1) (map go js)
+  go j@(JSApp' j1 js) = foldl (<>) (f j <> go j1) (map go js)
   go j@(JSInit j1 js) = foldl (<>) (f j <> go j1) (map go js)
   go j@(JSConditional j1 j2 j3) = f j <> go j1 <> go j2 <> go j3
   go j@(JSBlock js) = foldl (<>) (f j) (map go js)
