@@ -18,6 +18,8 @@ module Language.PureScript.Optimizer.TCO (tco) where
 import Language.PureScript.Options
 import Language.PureScript.CodeGen.JS.AST
 
+import Data.List (elemIndex)
+
 -- |
 -- Eliminate tail calls
 --
@@ -35,8 +37,9 @@ tco' = everywhereOnJS convert
   copyVar :: String -> String
   copyVar arg = "__copy_" ++ arg
   convert :: JS -> JS
-  convert js@(JSVariableIntroduction name (Just fn@JSFunction {})) =
+  convert js@(JSVariableIntroduction qname (Just fn@JSFunction {})) =
     let
+      name = unqual qname
       (argss, body', replace) = collectAllFunctionArgs [] id fn
     in case () of
       _ | isTailCall name body' ->
@@ -101,3 +104,8 @@ tco' = everywhereOnJS convert
   isFunction :: JS -> Bool
   isFunction (JSFunction _ _ _) = True
   isFunction _ = False
+
+unqual :: String -> String
+unqual s
+  | elemIndex '.' s == Nothing = s
+  | otherwise = last . words $ map (\c -> if c == '.' then ' ' else c) s
