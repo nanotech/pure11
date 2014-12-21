@@ -37,9 +37,8 @@ tco' = everywhereOnJS convert
   copyVar :: String -> String
   copyVar arg = "__copy_" ++ arg
   convert :: JS -> JS
-  convert js@(JSVariableIntroduction qname (Just fn@JSFunction {})) =
+  convert js@(JSVariableIntroduction name (Just fn@JSFunction {})) =
     let
-      name = unqual qname
       (argss, body', replace) = collectAllFunctionArgs [] id fn
     in case () of
       _ | isTailCall name body' ->
@@ -71,7 +70,7 @@ tco' = everywhereOnJS convert
       && numSelfCallsUnderFunctions == 0
     where
     countSelfCalls :: JS -> Int
-    countSelfCalls (JSApp (JSVar ident') _) | ident == ident' = 1
+    countSelfCalls (JSApp (JSVar ident') _) | (unqual ident) == ident' = 1
     countSelfCalls _ = 0
     countSelfCallsInTailPosition :: JS -> Int
     countSelfCallsInTailPosition (JSReturn ret) | isSelfCall ident ret = 1
@@ -98,7 +97,7 @@ tco' = everywhereOnJS convert
     collectSelfCallArgs allArgumentValues (JSApp fn args') = collectSelfCallArgs (args' : allArgumentValues) fn
     collectSelfCallArgs allArgumentValues _ = allArgumentValues
   isSelfCall :: String -> JS -> Bool
-  isSelfCall ident (JSApp (JSVar ident') args) | ident == ident' && not (any isFunction args) = True
+  isSelfCall ident (JSApp (JSVar ident') args) | (unqual ident) == ident' && not (any isFunction args) = True
   isSelfCall ident (JSApp fn args) | not (any isFunction args) = isSelfCall ident fn
   isSelfCall _ _ = False
   isFunction :: JS -> Bool
