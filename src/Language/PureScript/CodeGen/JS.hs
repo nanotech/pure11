@@ -22,7 +22,10 @@ module Language.PureScript.CodeGen.JS (
     identNeedsEscaping,
     unqual,
     anyType,
-    dotsTo
+    funcDecl,
+    appFn,
+    dotsTo,
+    withSpace
 ) where
 
 import Data.Maybe (catMaybes)
@@ -80,6 +83,7 @@ moduleToJs opts (Module name decls (Just _ {-exps-})) env = do
                                                 , JSRaw ("var _ reflect.Value //")
                                                 , JSRaw ("var _ fmt.Formatter //")
                                                 , JSRaw ("")])
+             ++ appFnDef
              ++ moduleBody
              ++ [JSRaw "\n// Package exports"]
   where
@@ -130,7 +134,7 @@ declToJs _ _ (DataDeclaration Newtype _ _ _) _ =
 declToJs _ _ (DataDeclaration Data _ _ ctors) _ = do
   return $ Just $ flip concatMap ctors $ \((ProperName ctor), tys) ->
          [ makeConstructor ctor tys
-         , JSVar ("var " ++ ('C' : ctor) ++ (' ' : 'T' : ctor))
+         , JSVar ("var " ++ ('C' : ctor) ++ withSpace ('T' : ctor))
          ]
     where
     makeConstructor :: String -> [Type] -> JS
@@ -260,7 +264,7 @@ valueToJs opts m e (TypedValue _ (Abs (Left arg) val) (TypeApp (TypeApp _ _) _))
 
 valueToJs opts m e (TypedValue _ (Abs (Left arg) val) (ConstrainedType cls _)) = do
   ret <- valueToJs opts m e val
-  return $ JSFunction Nothing [identToJs arg ++ constraint cls] (JSBlock [JSReturn ret])
+  return $ JSFunction Nothing [identToJs arg ++ withSpace (constraint cls)] (JSBlock [JSReturn ret])
   where
     constraint [((Qualified _ (ProperName name)),_)] = ('T' : name)
     constraint c = error $ "constraint assumption error: " ++ show c
@@ -318,7 +322,7 @@ bindersToJs opts m e binders vals = do
   jss <- forM binders $ \(CaseAlternative bs result) -> do
     ret <- guardsToJs result
     go valNames ret bs
-  return $ JSApp (JSFunction Nothing [] (JSBlock (assignments ++ concat jss ++ [JSThrow $ JSUnary JSNew $ JSApp (JSVar "Error") $ [JSStringLiteral "Failed pattern match"]])))
+  return $ JSApp (JSFunction Nothing [] (JSBlock (assignments ++ concat jss ++ [JSThrow (JSStringLiteral "Failed pattern match")])))
                  []
   where
     go :: (Functor m, Applicative m, Monad m) => [String] -> [JS] -> [Binder] -> SupplyT m [JS]
@@ -443,14 +447,21 @@ dotsTo chr = map (\c -> if c == '.' then chr else c)
 anyType :: String
 anyType  = "Any"
 
--- anyFunc :: String
--- anyFunc  = "func (" ++ anyType ++ ") " ++ anyType
+funcDecl :: String
+funcDecl = "func "
+
+anyFunc :: String
+anyFunc  = funcDecl ++ parens (anyType) ++ withSpace anyType
+
+appFn :: String
+appFn = "appFn"
+
 --
 -- funcType :: String
 -- funcType = anyFunc
 
 getSuper :: String
-getSuper = "func () " ++ anyType
+getSuper = funcDecl ++ parens "" ++ withSpace anyType
 
 capitalize :: String -> String
 capitalize (x:xs) | isLower x = (toUpper x : xs)
@@ -459,3 +470,21 @@ capitalize s = s
 -- capVar :: JS -> JS
 -- capVar (JSVar n) = JSVar $ capitalize n
 -- capVar v = v
+
+appFnDef :: [JS]
+appFnDef = map JSRaw [
+              funcDecl ++ appFn ++ parens ("f " ++ anyType ++ ", args ..." ++ anyType) ++ " " ++ anyType ++ " {"
+            , "  app := f"
+            , "  for arg := range args {"
+            , "    app = app." ++ parens (anyFunc) ++ "(arg)"
+            , "  }"
+            , "  return app"
+            , "}"
+            ]
+
+parens :: String -> String
+parens s = ('(':s) ++ ")"
+
+withSpace :: String -> String
+withSpace [] = []
+withSpace s = (' ' : s)

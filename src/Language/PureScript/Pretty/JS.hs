@@ -18,7 +18,7 @@ module Language.PureScript.Pretty.JS (
 ) where
 
 import Language.PureScript.Pretty.Common
-import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType)
+import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType, funcDecl, appFn, withSpace)
 import Language.PureScript.CodeGen.JS.AST
 
 import Data.List
@@ -74,23 +74,23 @@ literals = mkPattern' match
     ]
   match (JSVar ident) = return ident
   match (JSVariableIntroduction ident value) = fmap concat $ sequence $
-    if ident == "Main.Main" then [return "func main() {",
+    if ident == "Main.Main" then [return $ funcDecl ++ "main() {",
                                   return "\n",
                                   maybe (return "") (fmap ("  " ++) . prettyPrintJS') value,
                                   return "\n",
                                   return $ "}"]
     else case value of
       (Just (JSFunction Nothing [arg] ret)) ->
-          if '.' `elem` ident then [return "func ",
+          if '.' `elem` ident then [return funcDecl,
                                     return (unqual ident),
-                                    return (parens arg),
+                                    return . parens $ addTypeIfNeeded arg,
                                     return " ",
                                     return anyType, -- TODO: look for JSReturn and set accordingly?
                                     return " ",
                                     prettyPrintJS' ret]
                               else [return "var ",
                                     return ident,
-                                    return " func ",
+                                    return $ withSpace funcDecl,
                                     return (parens anyType),
                                     return " ",
                                     return anyType, -- TODO: look for JSReturn and set accordingly?
@@ -103,7 +103,7 @@ literals = mkPattern' match
             return " ",
             prettyPrintJS' a,
             return "\n",
-            return "func init() { ",
+            return $ funcDecl ++ "init() { ",
             return "\n",
             return (unqual ident),
             return " = ",
@@ -150,7 +150,11 @@ literals = mkPattern' match
     ]
   match (JSIfElse cond thens elses) = fmap concat $ sequence
     [ return "if "
-    , prettyPrintJS' cond
+    , prettyPrintJS' $ condition cond
+    -- , prettyPrintJS' (case cond of
+    --                     (JSVar _)       -> JSBinary EqualTo cond (JSBooleanLiteral True)
+    --                     (JSUnary Not c) -> JSBinary EqualTo c (JSBooleanLiteral False)
+    --                     _               -> cond)
     , return " "
     , prettyPrintJS' thens
     , maybe (return "") (fmap (" else " ++) . prettyPrintJS') elses
@@ -160,7 +164,7 @@ literals = mkPattern' match
     , prettyPrintJS' value
     ]
   match (JSThrow value) = fmap concat $ sequence
-    [ return "panic ("
+    [ return "panic("
     , prettyPrintJS' value
     , return ")"
     ]
@@ -223,8 +227,9 @@ app :: Pattern PrinterState JS (String, JS)
 app = mkPattern' match
   where
   match (JSApp val args) = do
+    fn <- prettyPrintJS' val
     jss <- mapM prettyPrintJS' args
-    return (intercalate ", " jss, val)
+    return (intercalate ", " (fn : jss), val)
   match _ = mzero
 
 init' :: Pattern PrinterState JS (String, JS)
@@ -295,12 +300,13 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
   operators =
     OperatorTable [ [ Wrap accessor $ \prop val -> val ++ "." ++ prop ]
                   , [ Wrap indexer $ \index val -> val ++ "[" ++ index ++ "]" ]
-                  , [ Wrap app $ \args val -> val ++ parens args ]
+                  , [ Wrap app $ \args _ -> appFn ++ parens args ]
                   , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "}" ]
                   , [ unary JSNew "new " ]
-                  , [ Wrap lam $ \(name, args) ret -> "func "
+                  , [ Wrap lam $ \(name, args) ret -> funcDecl
                         ++ fromMaybe "" name
-                        ++ "(" ++ intercalate ", " args ++ ") "
+                        ++ parens (intercalate "," (map addTypeIfNeeded args))
+                        ++ " "
                         ++ anyType
                         ++ " "
                         ++ ret ]
@@ -337,3 +343,14 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ binary    Or                   "||" ]
                   , [ Wrap conditional $ \(th, el) cond -> cond ++ " ? " ++ prettyPrintJS1 th ++ " : " ++ prettyPrintJS1 el ]
                     ]
+
+addTypeIfNeeded :: String -> String
+addTypeIfNeeded [] = []
+addTypeIfNeeded s = s ++ if length (words s) > 1 then [] else withSpace anyType
+
+condition :: JS -> JS
+condition cond = case cond of
+                   (JSVar _)         -> JSBinary EqualTo cond (JSBooleanLiteral True)
+                   (JSUnary Not c)   -> JSBinary EqualTo c (JSBooleanLiteral False)
+                   (JSBinary op a b) -> JSBinary op (condition a) (condition b)
+                   _                 -> cond
