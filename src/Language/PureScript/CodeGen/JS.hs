@@ -454,6 +454,9 @@ funcDecl = "func "
 anyFunc :: String
 anyFunc  = funcDecl ++ parens (anyType) ++ withSpace anyType
 
+noArgFunc :: String
+noArgFunc  = funcDecl ++ parens [] ++ withSpace anyType
+
 appFn :: String
 appFn = "appFn"
 
@@ -478,11 +481,15 @@ capitalize s = s
 appFnDef :: [JS]
 appFnDef = map JSRaw [
               funcDecl ++ appFn ++ parens ("f " ++ anyType ++ ", args ..." ++ anyType) ++ " " ++ anyType ++ " {"
-            , "  app := f"
-            , "  for _, arg := range args {"
-            , "    app = app." ++ parens (anyFunc) ++ "(arg)"
+            , "  count := len(args)"
+            , "  if count == 0 {"
+            , "    f = f." ++ parens (noArgFunc) ++ "()"
+            , "  } else {"
+            , "    for i := 0; i < count; i++ {"
+            , "      f = f." ++ parens (anyFunc) ++ "(args[i])"
+            , "    }"
             , "  }"
-            , "  return app"
+            , "  return f"
             , "}"
             ]
 
