@@ -157,10 +157,6 @@ literals = mkPattern' match
   match (JSIfElse cond thens elses) = fmap concat $ sequence
     [ return "if "
     , prettyPrintJS' $ condition cond
-    -- , prettyPrintJS' (case cond of
-    --                     (JSVar _)       -> JSBinary EqualTo cond (JSBooleanLiteral True)
-    --                     (JSUnary Not c) -> JSBinary EqualTo c (JSBooleanLiteral False)
-    --                     _               -> cond)
     , return " "
     , prettyPrintJS' thens
     , maybe (return "") (fmap (" else " ++) . prettyPrintJS') elses
