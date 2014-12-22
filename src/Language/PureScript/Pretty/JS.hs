@@ -247,7 +247,7 @@ init' = mkPattern' match
   where
   match (JSInit val args) = do
     jss <- mapM prettyPrintJS' args
-    return (intercalate ", " jss, val)
+    return (intercalate ",\n" jss, val)
   match _ = mzero
 
 typeOf :: Pattern PrinterState JS ((), JS)
@@ -312,7 +312,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ Wrap indexer $ \index val -> val ++ "[" ++ index ++ "]" ]
                   , [ Wrap app $ \args _ -> appFn ++ parens args ]
                   , [ Wrap app' $ \args val -> val ++ "(" ++ args ++ ")" ]
-                  , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "}" ]
+                  , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ ",\n}" ]
                   , [ unary JSNew "new " ]
                   , [ Wrap lam $ \(name, args) ret -> funcDecl
                         ++ fromMaybe "" name
