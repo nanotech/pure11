@@ -74,8 +74,9 @@ moduleToJs opts (Module name decls (Just exps)) env = do
            , JSRaw ("")
            ]
              ++ jsImports
-             ++ (if moduleName == "Prelude" then [JSRaw ("type " ++ anyType ++ " interface{} // Type aliase for readability")
-                                                , JSRaw ("")]
+             ++ (if moduleName == "Prelude" then (JSRaw ("type " ++ anyType ++ " interface{} // Type aliase for readability")
+                                                : JSRaw ("")
+                                                : appFnDef)
                                             else [JSRaw ("import . \"Prelude\"")
                                                 , JSRaw ("")
                                                 , JSRaw ("var _ Any           // ignore unused package errors")
@@ -83,7 +84,6 @@ moduleToJs opts (Module name decls (Just exps)) env = do
                                                 , JSRaw ("var _ reflect.Value //")
                                                 , JSRaw ("var _ fmt.Formatter //")
                                                 , JSRaw ("")])
-             ++ appFnDef
              ++ moduleBody
              ++ [JSRaw "\n// Package exports"]
   where
@@ -434,7 +434,7 @@ noArgFunc :: String
 noArgFunc  = funcDecl ++ parens [] ++ withSpace anyType
 
 appFn :: String
-appFn = "appFn"
+appFn = "AppFn"
 
 anyList :: String
 anyList = "[]" ++ anyType
