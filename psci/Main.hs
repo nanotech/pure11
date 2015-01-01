@@ -22,6 +22,7 @@ import Data.List (intercalate, isPrefixOf, nub, sortBy, sort)
 import Data.Maybe (mapMaybe)
 import Data.Traversable (traverse)
 import Data.Version (showVersion)
+import Data.Char (isSpace)
 import qualified Data.Map as M
 
 import Control.Applicative
@@ -127,7 +128,9 @@ getHistoryFilename = do
 -- Loads a file for use with imports.
 --
 loadModule :: FilePath -> IO (Either String [P.Module])
-loadModule filename = either (Left . show) Right . P.runIndentParser filename P.parseModules <$> U.readFile filename
+loadModule filename = do
+  content <- U.readFile filename
+  return $ either (Left . show) (Right . map snd) $ P.parseModulesFromFiles id [(filename, content)]
 
 -- |
 -- Load all modules, including the Prelude
@@ -153,7 +156,9 @@ expandTilde p = return p
 --
 helpMessage :: String
 helpMessage = "The following commands are available:\n\n    " ++
-  intercalate "\n    " (map (intercalate "    ") C.help)
+  intercalate "\n    " (map line C.help)
+  where line :: (String, String, String) -> String
+        line (cmd, arg, desc) = intercalate " " [cmd, arg, replicate (11 - length arg) ' ', desc]
 
 -- |
 -- The welcome prologue.
@@ -180,37 +185,88 @@ quitMessage = "See ya!"
 
 -- Haskeline completions
 
+data CompletionContext = Command String | FilePath | Module | Identifier | Fixed [String] | Multiple [CompletionContext]
+                         deriving (Show)
+
+-- |
+-- Decide what kind of completion we need based on input.
+completionContext :: String -> Maybe CompletionContext
+completionContext cmd@"" = Just $ Multiple [Command cmd, Identifier]
+completionContext cmd@(':' : _ )
+  | cmd `elem` C.commands || cmd == ":" = Just $ Command cmd
+completionContext (':' : c : _) = case c of
+  'i' -> Just Module
+  'b' -> Just Module
+  'm' -> Just FilePath
+  'q' -> Nothing
+  'r' -> Nothing
+  '?' -> Nothing
+  's' -> Just $ Fixed ["import", "loaded"]
+  't' -> Just Identifier
+  'k' -> Just Identifier
+  _   -> Nothing
+completionContext _ = Just Identifier
+
 -- |
 -- Loads module, function, and file completions.
 --
 completion :: CompletionFunc (StateT PSCiState IO)
-completion = completeWord Nothing " \t\n\r" findCompletions
+completion = completeWordWithPrev Nothing " \t\n\r" findCompletions
   where
-  findCompletions :: String -> StateT PSCiState IO [Completion]
-  findCompletions st = do
-    ms <- map snd . psciLoadedModules <$> get
-    files <- listFiles st
-    let matches = filter (isPrefixOf st) (names ms)
-    return $ sortBy sorter $ map simpleCompletion matches ++ files
+  findCompletions :: String -> String -> StateT PSCiState IO [Completion]
+  findCompletions prev word = do
+    let ctx = completionContext $ (dropWhile isSpace (reverse prev)) ++ word
+    completions <- case ctx of
+      Nothing -> return []
+      (Just c) -> (mapMaybe $ either (\cand -> if word `isPrefixOf` cand
+                                               then Just $ simpleCompletion cand
+                                               else Nothing) Just)
+                  <$> getCompletion c word
+    return $ sortBy sorter completions
+
+  getCompletion :: CompletionContext -> String -> StateT PSCiState IO [Either String Completion]
+  getCompletion (Command s) _ = return $ (map Left) $ nub $ filter (isPrefixOf s) C.commands
+  getCompletion FilePath f = (map Right) <$> listFiles f
+  getCompletion Module _ = (map Left) <$> getModuleNames
+  getCompletion Identifier _ = (map Left) <$> getIdentNames
+  getCompletion (Fixed list) _ = return $ (map Left) list
+  getCompletion (Multiple contexts) f = concat <$> mapM (flip getCompletion $ f) contexts
+
+  getLoadedModules :: StateT PSCiState IO [P.Module]
+  getLoadedModules = map snd . psciLoadedModules <$> get
+
+  getModuleNames :: StateT PSCiState IO [String]
+  getModuleNames = moduleNames <$> getLoadedModules
+
+  getIdentNames :: StateT PSCiState IO [String]
+  getIdentNames = identNames <$> getLoadedModules
+
   getDeclName :: Maybe [P.DeclarationRef] -> P.Declaration -> Maybe P.Ident
-  getDeclName Nothing (P.ValueDeclaration ident _ _ _) = Just ident
-  getDeclName (Just exts) (P.ValueDeclaration ident _ _ _) | isExported = Just ident
+  getDeclName exts (P.ValueDeclaration ident _ _ _)  | isExported ident exts = Just ident
+  getDeclName exts (P.ExternDeclaration _ ident _ _) | isExported ident exts = Just ident
+  getDeclName exts (P.PositionedDeclaration _ d) = getDeclName exts d
+  getDeclName _ _ = Nothing
+
+  isExported :: N.Ident -> Maybe [P.DeclarationRef] -> Bool
+  isExported ident = maybe True (any exports)
     where
-    isExported = any exports exts
+    exports :: P.DeclarationRef -> Bool
     exports (P.ValueRef ident') = ident == ident'
     exports (P.PositionedDeclarationRef _ r) = exports r
     exports _ = False
-  getDeclName exts (P.PositionedDeclaration _ d) = getDeclName exts d
-  getDeclName _ _ = Nothing
-  names :: [P.Module] -> [String]
-  names ms = nub [ show qual
-              | P.Module moduleName ds exts <- ms
-              , ident <- mapMaybe (getDeclName exts) ds
-              , qual <- [ P.Qualified Nothing ident
-                        , P.Qualified (Just moduleName) ident]
-              ]
+  
+  identNames :: [P.Module] -> [String]
+  identNames ms = nub [ show qual
+                      | P.Module moduleName ds exts <- ms
+                      , ident <- mapMaybe (getDeclName exts) ds
+                      , qual <- [ P.Qualified Nothing ident
+                                , P.Qualified (Just moduleName) ident]
+                      ]
+  moduleNames :: [P.Module] -> [String]
+  moduleNames ms = nub [show moduleName | P.Module moduleName _ _ <- ms]
+
   sorter :: Completion -> Completion -> Ordering
-  sorter (Completion _ d1 _) (Completion _ d2 _) = compare d1 d2
+  sorter (Completion _ d1 _) (Completion _ d2 _) = if ":" `isPrefixOf` d1 then LT else compare d1 d2
 
 -- Compilation
 
@@ -441,7 +497,7 @@ handleKindOf typ = do
 -- |
 -- Parses the input and returns either a Metacommand or an expression.
 --
-getCommand :: Bool -> InputT (StateT PSCiState IO) (Either Par.ParseError (Maybe Command))
+getCommand :: Bool -> InputT (StateT PSCiState IO) (Either String (Maybe Command))
 getCommand singleLineMode = do
   firstLine <- getInputLine "> "
   case firstLine of
@@ -519,7 +575,7 @@ loop (PSCiOptions singleLineMode files) = do
         go = do
           c <- getCommand singleLineMode
           case c of
-            Left err -> outputStrLn (show err) >> go
+            Left err -> outputStrLn err >> go
             Right Nothing -> go
             Right (Just Quit) -> outputStrLn quitMessage
             Right (Just c') -> runPSCI (handleCommand c') >> go

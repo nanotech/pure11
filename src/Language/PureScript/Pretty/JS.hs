@@ -17,20 +17,23 @@ module Language.PureScript.Pretty.JS (
     prettyPrintJS
 ) where
 
-import Language.PureScript.Pretty.Common
-import Language.PureScript.CodeGen.JS (identNeedsEscaping, unqual, anyType, funcDecl, appFn, anyList, withSpace)
-import Language.PureScript.CodeGen.JS.AST
-
 import Data.List
 import Data.Char (isSpace)
 import Data.Maybe (fromMaybe)
-import qualified Control.Arrow as A
-import Control.Arrow ((<+>))
-import Control.PatternArrows
+
 import Control.Applicative
+import Control.Arrow ((<+>))
 import Control.Monad.State
+import Control.PatternArrows
+import qualified Control.Arrow as A
+
+import Language.PureScript.CodeGen.JS.AST
+import Language.PureScript.CodeGen.JS.Common
+import Language.PureScript.Pretty.Common
+
 import Numeric
 
+import Language.PureScript.CodeGen.Go
 import Debug.Trace ()
 
 literals :: Pattern PrinterState JS String
@@ -103,6 +106,10 @@ literals = mkPattern' match
                                     return "; ", -- TODO: line break and align
                                     return ident,
                                     maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
+
+      (Just (JSData' prefix fields)) ->
+           [prettyPrintJS' (JSData' (prefix ++ unqual ident) fields)]
+
       (Just (JSInit a b)) ->
            [return "var ",
             return (unqual ident),
