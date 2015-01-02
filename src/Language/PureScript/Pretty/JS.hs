@@ -54,19 +54,19 @@ literals = mkPattern' match
     ]
   match (JSObjectLiteral []) = return "nil"
   match (JSObjectLiteral ps) = fmap concat $ sequence
-    [ return "{\n"
+    [ return anyMap
+    , return "{\n"
     , withIndent $ do
         jss <- forM ps $ \(key, value) -> fmap ((objectPropertyToString key ++ ": ") ++) . prettyPrintJS' $ value
         indentString <- currentIndent
-        return $ intercalate ", \n" $ map (indentString ++) jss
+        return $ concatMap (\s -> s ++ ",\n") $ map (indentString ++) jss
     , return "\n"
     , currentIndent
     , return "}"
     ]
     where
     objectPropertyToString :: String -> String
-    objectPropertyToString s | identNeedsEscaping s = show s
-                             | otherwise = s
+    objectPropertyToString = show
   match (JSBlock sts) = fmap concat $ sequence
     [ return "{\n"
     , withIndent $ prettyStatements sts
@@ -94,7 +94,7 @@ literals = mkPattern' match
                                     prettyPrintJS' . JSBlock $
                                     if typ' == anyType
                                       then ret
-                                      else [JSBlock (JSVariableIntroduction arg' (Just $ withCast (JSVar arg') typ') : ret)]
+                                      else [JSBlock (JSVariableIntroduction arg' (Just $ withCast typ' (JSVar arg')) : ret)]
                                     ]
                               else [return "var ",
                                     return ident,
@@ -219,7 +219,7 @@ accessor = mkPattern match
 indexer :: Pattern PrinterState JS (String, JS)
 indexer = mkPattern' match
   where
-  match (JSIndexer index val) = (,) <$> prettyPrintJS' index <*> pure (withCast val anyList)
+  match (JSIndexer index val) = (,) <$> prettyPrintJS' index <*> pure val
   match _ = mzero
 
 lam :: Pattern PrinterState JS ((Maybe String, [String]), JS)

@@ -31,6 +31,9 @@ appFn = "AppFn"
 anyList :: String
 anyList = "[]" ++ anyType
 
+anyMap :: String
+anyMap = "map [string] " ++ anyType
+
 getSuper :: String
 getSuper = funcDecl ++ parens "" ++ withSpace anyType
 
@@ -78,8 +81,8 @@ typeOnly s
   | length (words s) > 1 = intercalate " " . tail $ words s
   | otherwise = anyType
 
-withCast :: JS -> String -> JS
-withCast js ty = JSAccessor (parens ty) js
+withCast :: String -> JS -> JS
+withCast = JSAccessor . parens
 
 condition :: JS -> JS
 condition cond = case cond of

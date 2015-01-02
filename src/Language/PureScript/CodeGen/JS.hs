@@ -112,7 +112,10 @@ var = JSVar . identToJs
 -- indexer is returned.
 --
 accessorString :: String -> JS -> JS
-accessorString prop = JSAccessor . capitalize $ identToJs (Ident prop)
+accessorString prop = JSAccessor (capitalize . identToJs $ Ident prop)
+
+mapAccessorString :: String -> JS -> JS
+mapAccessorString prop = JSIndexer (JSStringLiteral prop) . withCast anyMap
 
 -- |
 -- Generate code in the simplified Javascript intermediate representation for a value or expression.
@@ -125,7 +128,9 @@ valueToJs m (Var (_, _, Just (IsConstructor _ 0)) name) =
 valueToJs m (Var (_, _, Just (IsConstructor _ _)) name) =
   return $ qualifiedToJS m id (withSuffix "_Ctor" name)
 valueToJs m (Accessor _ prop val) =
-  accessorString prop <$> valueToJs m val
+  case val of
+    Var (_, Just (TypeApp (TypeConstructor _) (RCons _ _ _)), _) _ -> mapAccessorString prop <$> valueToJs m val
+    _ -> accessorString prop <$> valueToJs m val
 valueToJs m (ObjectUpdate _ o ps) = do
   obj <- valueToJs m o
   sts <- mapM (sndM (valueToJs m)) ps
@@ -311,11 +316,11 @@ binderToJs m varName done binder@(ConstructorBinder _ _ ctor _) | isCons ctor = 
   js1 <- foldM (\done' (headBinder, index) -> do
     headVar <- freshName
     jss <- binderToJs m headVar done' headBinder
-    return (JSVariableIntroduction headVar (Just (JSIndexer (JSNumericLiteral (Left index)) (JSVar varName))) : jss)) done (zip headBinders [0..])
+    return (JSVariableIntroduction headVar (Just (JSIndexer (JSNumericLiteral (Left index)) (withCast anyList (JSVar varName)))) : jss)) done (zip headBinders [0..])
   tailVar <- freshName
   js2 <- binderToJs m tailVar js1 tailBinder
   return [JSIfElse (JSBinary GreaterThanOrEqualTo (listLen (JSVar varName)) (JSNumericLiteral (Left numberOfHeadBinders))) (JSBlock
-    ( JSVariableIntroduction tailVar (Just (JSIndexer (JSVar (show numberOfHeadBinders ++ ":")) (JSVar varName))) :
+    ( JSVariableIntroduction tailVar (Just (JSIndexer (JSVar (show numberOfHeadBinders ++ ":")) (withCast anyList (JSVar varName)))) :
       js2
     )) Nothing]
   where
@@ -356,7 +361,7 @@ literalToBinderJS m varName done (ArrayLiteral bs) = do
     elVar <- freshName
     done'' <- go done' (index + 1) bs'
     js <- binderToJs m elVar done'' binder
-    return (JSVariableIntroduction elVar (Just (JSIndexer (JSNumericLiteral (Left index)) (JSVar varName))) : js)
+    return (JSVariableIntroduction elVar (Just (JSIndexer (JSNumericLiteral (Left index)) (withCast anyList (JSVar varName)))) : js)
 
 isCons :: Qualified ProperName -> Bool
 isCons (Qualified (Just mn) ctor) = mn == ModuleName [ProperName C.prim] && ctor == ProperName "Array"
