@@ -131,6 +131,9 @@ literals = mkPattern' match
             return " ",
             return "struct{}"]
 
+      (Just (JSBlock b)) ->
+           [return $ prettyPrintJS b]
+
       _ -> [return "var ",
             return (unqual ident),
             maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
@@ -254,7 +257,7 @@ init' = mkPattern' match
   where
   match (JSInit val args) = do
     jss <- mapM prettyPrintJS' args
-    return (intercalate ",\n" jss, val)
+    return (concatMap (\s -> s ++ ",\n") jss, val)
   match _ = mzero
 
 typeOf :: Pattern PrinterState JS ((), JS)
@@ -319,7 +322,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ Wrap indexer $ \index val -> val ++ "[" ++ index ++ "]" ]
                   , [ Wrap app $ \args _ -> appFn ++ parens args ]
                   , [ Wrap app' $ \args val -> val ++ "(" ++ args ++ ")" ]
-                  , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ ",\n}" ]
+                  , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "\n}" ]
                   , [ unary JSNew "new " ]
                   , [ Wrap lam $ \(name, args) ret -> funcDecl
                         ++ fromMaybe "" name
@@ -338,7 +341,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ binary    GreaterThan          ">" ]
                   , [ binary    GreaterThanOrEqualTo ">=" ]
                   , [ Wrap typeOf $ \_ s -> "typeof " ++ s ]
-                  , [ AssocR instanceOf $ \v1 v2 -> "reflect.TypeOf" ++ parens v1 ++ " == reflect.TypeOf" ++ parens ('C' : v2) ]
+                  , [ AssocR instanceOf $ \v1 v2 -> typeOfExpr v1 ++ " == " ++ typeOfType ("D_" ++ v2) ]
 
                   , [ unary     Not                  "!" ]
                   , [ unary     BitwiseNot           "~" ]

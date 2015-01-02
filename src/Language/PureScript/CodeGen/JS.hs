@@ -53,8 +53,8 @@ import Debug.Trace
 moduleToJs :: (Functor m, Applicative m, Monad m) => Options mode -> Module Ann -> SupplyT m [JS]
 moduleToJs opts (Module name imps exps foreigns decls) = do
   let jsImports = map (importToJs opts) . delete (ModuleName [ProperName C.prim]) . (\\ [name]) $ imps
-  -- let foreigns' = mapMaybe (\(_, js, _) -> js) foreigns
-  jsDecls <- mapM (bindToJs name) decls
+  let foreigns' = mapMaybe (\(_, js, _) -> js) foreigns
+  jsDecls <- mapM (bindToJs name True) decls
   let optimized = concatMap (map $ optimize opts) $ catMaybes jsDecls
   return $ [ JSRaw ("package " ++ moduleName)
            , JSRaw ("")
@@ -74,7 +74,7 @@ moduleToJs opts (Module name imps exps foreigns decls) = do
                                                 , JSRaw ("var _ fmt.Formatter //")
                                                 , JSRaw ("")])
              ++ optimized
-             ++ [JSRaw "\n// Package exports"]
+             ++ foreigns'
   where
     moduleName = case name of (ModuleName [ProperName "Main"]) -> "main"
                               _ -> unqual $ moduleNameToJs' name
@@ -89,16 +89,16 @@ importToJs opts mn =
 -- |
 -- Generate code in the simplified Javascript intermediate representation for a declaration
 --
-bindToJs :: (Functor m, Applicative m, Monad m) => ModuleName -> Bind Ann -> SupplyT m (Maybe [JS])
-bindToJs mp (NonRec ident val) = do
+bindToJs :: (Functor m, Applicative m, Monad m) => ModuleName -> Bool -> Bind Ann -> SupplyT m (Maybe [JS])
+bindToJs mp modlvl (NonRec ident val) = do
   js <- valueToJs mp val
-  return $ Just [JSVariableIntroduction qname (Just js)]
+  return $ Just [JSVariableIntroduction (if modlvl then qname else identToJs ident) (Just js)]
   where
     qname = runModuleName mp ++ "." ++ (capitalize $ identToJs ident)
-bindToJs mp (Rec vals) = do
+bindToJs mp _ (Rec vals) = do
   jss <- forM vals $ \(ident, val) -> do
     js <- valueToJs mp val
-    return $ JSVariableIntroduction (identToJs ident) (Just js)
+    return $ JSVariableIntroduction (capitalize $ identToJs ident) (Just js)
   return $ Just jss
 
 -- |
@@ -113,13 +113,8 @@ var = JSVar . identToJs
 -- a PureScript identifier. If the name is not valid in Javascript (symbol based, reserved name) an
 -- indexer is returned.
 --
-accessor :: Ident -> JS -> JS
-accessor (Ident prop) = accessorString prop
-accessor (Op op) = JSIndexer (JSStringLiteral op)
-
 accessorString :: String -> JS -> JS
-accessorString prop | identNeedsEscaping prop = JSIndexer (JSStringLiteral prop)
-                    | otherwise = JSAccessor prop
+accessorString prop = JSAccessor . capitalize $ identToJs (Ident prop)
 
 -- |
 -- Generate code in the simplified Javascript intermediate representation for a value or expression.
@@ -130,7 +125,7 @@ valueToJs m (Literal _ l) =
 valueToJs m (Var (_, _, Just (IsConstructor _ 0)) name) =
   return $ qualifiedToJS m id (withSuffix "_Ctor" name)
 valueToJs m (Var (_, _, Just (IsConstructor _ _)) name) =
-  return $ JSAccessor "create" $ qualifiedToJS m id name
+  return $ qualifiedToJS m id (withSuffix "_Ctor" name)
 valueToJs m (Accessor _ prop val) =
   accessorString prop <$> valueToJs m val
 valueToJs m (ObjectUpdate _ o ps) = do
@@ -145,17 +140,30 @@ valueToJs _ e@(Abs (_, _, Just IsTypeClassConstructor) _ val) =
   unAbs (Abs _ arg val) = arg : unAbs val
   unAbs _ = []
   decl :: Ident -> JS
-  decl name = JSVar $ identToJs name ++ withSpace anyType
-valueToJs m (Abs _ arg val) = do
+  decl name = JSVar . capitalize $ identToJs name ++ withSpace anyType
+valueToJs m e@(Abs (_, _, Just IsNewtype) arg val) = -- TODO: revisit this
+  let args = unAbs e
+  in return $ JSData' "D_" (JSBlock $ map decl args)
+  where
+  unAbs :: Expr Ann -> [Ident]
+  unAbs (Abs _ arg val) = arg : unAbs val
+  unAbs _ = []
+  decl :: Ident -> JS
+  decl name = JSVar . capitalize $ identToJs name ++ withSpace anyType
+valueToJs m (Abs (_, t, _) arg val) = do
   ret <- valueToJs m val
-  return $ JSFunction Nothing [identToJs arg] (JSBlock [JSReturn ret])
+  return $ JSFunction Nothing [identToJs arg ++ type' t] (JSBlock [JSReturn ret])
+    where
+      type' (Just (ForAll _ ty _)) = type' (Just ty)
+      type' (Just (ConstrainedType [((Qualified _ (ProperName name)),_)] _)) = withSpace ("T_" ++ name)
+      type' _ = ""
 valueToJs m e@App{} = do
   let (f, args) = unApp e []
   args' <- mapM (valueToJs m) args
   case f of
     Var (_, _, Just IsNewtype) _ -> return (head args')
     Var (_, _, Just (IsConstructor _ arity)) name | arity == length args ->
-      return $ JSInit (JSVar $ '?' : unqualName name) args'
+      return $ JSInit (JSVar $ "D_" ++ unqualName name) args'
     Var (_, _, Just IsTypeClassConstructor) name ->
       return $ JSInit (JSVar $ "T_" ++ unqualName name) args'
     _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> valueToJs m f
@@ -169,7 +177,7 @@ valueToJs m (Case _ values binders) = do
   vals <- mapM (valueToJs m) values
   bindersToJs m binders vals
 valueToJs m (Let _ ds val) = do
-  decls <- concat . catMaybes <$> mapM (bindToJs m) ds
+  decls <- concat . catMaybes <$> mapM (bindToJs m False) ds
   ret <- valueToJs m val
   return $ JSApp (JSFunction Nothing [] (JSBlock (decls ++ [JSReturn ret]))) []
 valueToJs _ (Constructor (_, _, Just IsNewtype) _ (ProperName ctor) _) =
@@ -178,27 +186,27 @@ valueToJs _ (Constructor (_, _, Just IsNewtype) _ (ProperName ctor) _) =
                 JSFunction Nothing ["value"]
                   (JSBlock [JSReturn $ JSVar "value"]))])
 valueToJs _ (Constructor _ _ (ProperName ctor) 0) =
-  return $ iife ctor [ JSFunction (Just ctor) [] (JSBlock [])
-         , JSAssignment (JSAccessor "value?" (JSVar ctor))
-              (JSUnary JSNew $ JSApp (JSVar ctor) []) ]
+  return $ JSBlock [ JSData' ("D_" ++ ctor) (JSBlock [])
+         , JSFunction (Just $ ctor ++ "_Ctor") [] (JSBlock [JSReturn (JSInit (JSVar $ "D_" ++ ctor) [])])
+         ]
 valueToJs _ (Constructor _ _ (ProperName ctor) arity) =
-  return $ iife ctor [ makeConstructor ctor arity
-         , JSAssignment (JSAccessor "create" (JSVar ctor)) (go ctor 0 arity [])
+  return $ JSBlock [ makeConstructor ctor arity
+         , (go ctor 0 arity [])
          ]
     where
     makeConstructor :: String -> Int -> JS
     makeConstructor ctorName n =
       let args = [ "value" ++ show index | index <- [0..n-1] ]
-          body = [ JSAssignment (JSAccessor arg (JSVar "this")) (JSVar arg) | arg <- args ]
-      in JSData' ("T_" ++ ctorName) (JSBlock body)
+          body = [ (JSVar $ arg ++ withSpace anyType) | arg <- args ]
+      in JSData' ("D_" ++ ctorName) (JSBlock body)
     go :: String -> Int -> Int -> [JS] -> JS
-    go pn _ 0 values = JSUnary JSNew $ JSApp (JSVar pn) (reverse values)
+    go pn _ 0 values = JSInit (JSVar $ "D_" ++ pn) (reverse values)
     go pn index n values =
-      JSFunction Nothing ["value" ++ show index]
+      JSFunction fname ["value" ++ show index]
         (JSBlock [JSReturn (go pn (index + 1) (n - 1) (JSVar ("value" ++ show index) : values))])
-
-iife :: String -> [JS] -> JS
-iife v exprs = JSApp (JSFunction Nothing [] (JSBlock $ exprs ++ [JSReturn $ JSVar v])) []
+      where
+        fname = case index of 0 -> Just $ pn ++ "_Ctor"
+                              _ -> Nothing
 
 literalToValueJS :: (Functor m, Applicative m, Monad m) => ModuleName -> Literal (Expr Ann) -> SupplyT m JS
 literalToValueJS _ (NumericLiteral n) = return $ JSNumericLiteral n
@@ -309,7 +317,7 @@ binderToJs m varName done binder@(ConstructorBinder _ _ ctor _) | isCons ctor = 
   tailVar <- freshName
   js2 <- binderToJs m tailVar js1 tailBinder
   return [JSIfElse (JSBinary GreaterThanOrEqualTo (listLen (JSVar varName)) (JSNumericLiteral (Left numberOfHeadBinders))) (JSBlock
-    ( JSVariableIntroduction tailVar (Just (JSApp (JSAccessor "slice" (JSVar varName)) [JSNumericLiteral (Left numberOfHeadBinders)])) :
+    ( JSVariableIntroduction tailVar (Just (JSIndexer (JSVar (show numberOfHeadBinders ++ ":")) (JSVar varName))) :
       js2
     )) Nothing]
   where
@@ -363,6 +371,9 @@ isCons name = error $ "Unexpected argument in isCons: " ++ show name
 unqualName :: Qualified Ident -> String
 unqualName (Qualified _ (Ident name)) = name
 unqualName n = show n
+
+withPrefix :: String -> Qualified Ident -> Qualified Ident
+withPrefix prefix (Qualified n (Ident name)) = Qualified n (Ident $ prefix ++ name)
 
 withSuffix :: String -> Qualified Ident -> Qualified Ident
 withSuffix suffix (Qualified n (Ident name)) = Qualified n (Ident $ name ++ suffix)

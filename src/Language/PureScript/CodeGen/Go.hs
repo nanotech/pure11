@@ -57,8 +57,11 @@ withSpace :: String -> String
 withSpace [] = []
 withSpace s = (' ' : s)
 
--- TODO: Should type casts be done in this module or in Pretty?
---
-
 listLen :: JS -> JS
 listLen l = JSApp' (JSVar "len") [JSAccessor (parens anyList) l]
+
+typeOfExpr :: String -> String
+typeOfExpr s = "reflect.TypeOf" ++ parens s
+
+typeOfType :: String -> String
+typeOfType s = typeOfExpr (parens ('*': s) ++ parens "nil") ++ ".Elem()"
