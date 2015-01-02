@@ -169,7 +169,7 @@ valueToJs m e@App{} = do
     Var (_, _, Just (IsConstructor _ arity)) name | arity == length args ->
       return $ JSApp (JSVar $ withSuffix' "_Ctor" m name) args'
     Var (_, _, Just IsTypeClassConstructor) name ->
-      return $ JSInit (JSVar $ "T_" ++ unqualName name) args'
+      return $ JSInit (JSVar $ withPrefix' "T_" m name) args'
     _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> valueToJs m f
   where
   unApp :: Expr Ann -> [Expr Ann] -> (Expr Ann, [Expr Ann])
