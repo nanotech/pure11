@@ -65,3 +65,26 @@ typeOfExpr s = "reflect.TypeOf" ++ parens s
 
 typeOfType :: String -> String
 typeOfType s = typeOfExpr (parens ('*': s) ++ parens "nil") ++ ".Elem()"
+
+addTypeIfNeeded :: String -> String
+addTypeIfNeeded [] = []
+addTypeIfNeeded s = s ++ if length (words s) > 1 then [] else withSpace anyType
+
+argOnly :: String -> String
+argOnly = head . words
+
+typeOnly :: String -> String
+typeOnly s
+  | length (words s) > 1 = intercalate " " . tail $ words s
+  | otherwise = anyType
+
+withCast :: JS -> String -> JS
+withCast js ty = JSAccessor (parens ty) js
+
+condition :: JS -> JS
+condition cond = case cond of
+                   (JSVar _)          -> JSBinary EqualTo cond (JSBooleanLiteral True)
+                   (JSUnary Not c)    -> JSBinary EqualTo c (JSBooleanLiteral False)
+                   (JSBinary And a b) -> JSBinary And (condition a) (condition b)
+                   (JSBinary Or a b)  -> JSBinary Or (condition a) (condition b)
+                   _                  -> cond

@@ -40,9 +40,7 @@ import Language.PureScript.Supply
 import Language.PureScript.Traversals (sndM)
 import qualified Language.PureScript.Constants as C
 
-import Data.Char (isLower, toUpper)
 import Language.PureScript.Types
-
 import Language.PureScript.CodeGen.Go
 import Debug.Trace
 
@@ -363,10 +361,6 @@ literalToBinderJS m varName done (ArrayLiteral bs) = do
 isCons :: Qualified ProperName -> Bool
 isCons (Qualified (Just mn) ctor) = mn == ModuleName [ProperName C.prim] && ctor == ProperName "Array"
 isCons name = error $ "Unexpected argument in isCons: " ++ show name
-
--- unqualName :: Qualified ProperName -> String
--- unqualName (Qualified (Just (ModuleName [ProperName _])) (ProperName uname)) = uname
--- unqualName n = show n
 
 unqualName :: Qualified Ident -> String
 unqualName (Qualified _ (Ident name)) = name
