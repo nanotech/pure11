@@ -41,6 +41,7 @@ import Language.PureScript.Traversals (sndM)
 import qualified Language.PureScript.Constants as C
 
 import Language.PureScript.Types
+import Language.PureScript.Pretty.Common
 import Language.PureScript.CodeGen.Go
 import Debug.Trace
 
@@ -166,7 +167,7 @@ valueToJs m e@App{} = do
   case f of
     Var (_, _, Just IsNewtype) _ -> return (head args')
     Var (_, _, Just (IsConstructor _ arity)) name | arity == length args ->
-      return $ JSInit (JSVar $ "D_" ++ unqualName name) args'
+      return $ JSApp (JSVar $ withSuffix' "_Ctor" m name) args'
     Var (_, _, Just IsTypeClassConstructor) name ->
       return $ JSInit (JSVar $ "T_" ++ unqualName name) args'
     _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> valueToJs m f
@@ -294,7 +295,7 @@ binderToJs _ varName done (VarBinder _ ident) =
   return (JSVariableIntroduction (identToJs ident) (Just (JSVar varName)) : done)
 binderToJs m varName done (ConstructorBinder (_, _, Just IsNewtype) _ _ [b]) =
   binderToJs m varName done b
-binderToJs m varName done (ConstructorBinder (_, _, Just (IsConstructor ctorType _)) _ ctor bs) = do
+binderToJs m varName done (ConstructorBinder (_, _, Just (IsConstructor ctorType _)) d ctor bs) = do
   js <- go 0 done bs
   return $ case ctorType of
     ProductType -> js
@@ -309,7 +310,12 @@ binderToJs m varName done (ConstructorBinder (_, _, Just (IsConstructor ctorType
     argVar <- freshName
     done'' <- go (index + 1) done' bs'
     js <- binderToJs m argVar done'' binder
-    return (JSVariableIntroduction argVar (Just (JSAccessor ("value" ++ show index) (JSVar varName))) : js)
+    return (JSVariableIntroduction argVar (Just (JSAccessor (parens (dtype) ++ "." ++ "value" ++ show index) (JSVar varName))) : js)
+  (Qualified dmod (ProperName dname)) = d
+  dname' = "D_" ++ dname
+  dtype = case dmod of
+            Nothing -> dname
+            Just dmod' -> if dmod' == m then dname' else runModuleName dmod' ++ ('.' : dname')
 binderToJs m varName done binder@(ConstructorBinder _ _ ctor _) | isCons ctor = do
   let (headBinders, tailBinder) = uncons [] binder
       numberOfHeadBinders = fromIntegral $ length headBinders
@@ -374,5 +380,15 @@ unqualName n = show n
 withPrefix :: String -> Qualified Ident -> Qualified Ident
 withPrefix prefix (Qualified n (Ident name)) = Qualified n (Ident $ prefix ++ name)
 
+withPrefix' :: String -> ModuleName -> Qualified Ident -> String
+withPrefix' prefix m (Qualified n (Ident name))
+  | n == Nothing || n == Just m = prefix ++ name
+  | (Just n') <- n = runModuleName n' ++ ('.' : prefix ++ name)
+
 withSuffix :: String -> Qualified Ident -> Qualified Ident
 withSuffix suffix (Qualified n (Ident name)) = Qualified n (Ident $ name ++ suffix)
+
+withSuffix' :: String -> ModuleName -> Qualified Ident -> String
+withSuffix' suffix m full@(Qualified n (Ident name))
+  | n == Just m = name ++ suffix
+  | otherwise = show full ++ suffix
