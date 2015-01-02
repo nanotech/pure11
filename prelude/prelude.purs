@@ -860,6 +860,8 @@ module Debug.Trace where
   print :: forall a r. (Show a) => a -> Eff (trace :: Trace | r) Unit
   print o = trace (show o)
 
+  _ignoreUnused = runPure
+
 module Control.Monad.ST where
 
   import Control.Monad.Eff
