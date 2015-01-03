@@ -103,14 +103,15 @@ literals = mkPattern' match
                               return (parens anyType),
                               return " ",
                               return anyType, -- TODO: look for JSReturn and set accordingly?
-                              return "; ", -- TODO: line break and align
-                              return ident,
+                              return "\n",
+                              currentIndent,
+                              withIndent $ return ident,
                               maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
 
       (Just (JSData' prefix fields)) ->
            [prettyPrintJS' (JSData' (prefix ++ unqual ident) fields)]
 
-      (Just (JSInit a _)) ->
+      (Just (JSInit a b)) ->
            [return "var ",
             return (modulePrefix ++ unqual ident),
             return " ",
@@ -122,7 +123,16 @@ literals = mkPattern' match
               indentString <- currentIndent
               return (indentString ++ modulePrefix ++ unqual ident),
             return " = ",
-            withIndent $ maybe (return "") prettyPrintJS' value,
+            prettyPrintJS' a,
+            return "{\n",
+            withIndent $ withIndent $ do
+              jss <- forM b prettyPrintJS'
+              indentString <- currentIndent
+              return $ concatMap (\s -> s ++ ",\n") $ map (indentString ++) jss,
+            withIndent $ do
+              indentString <- currentIndent
+              return indentString,
+            return "}",
             return "\n",
             return "}",
             return "\n"]
@@ -261,13 +271,16 @@ app' = mkPattern' match
 init' :: Pattern PrinterState JS (String, JS)
 init' = mkPattern' match
   where
-  match (JSInit val args) = do
-    indentString <- currentIndent
-    jss <- mapM prettyPrintJS' args
-    case jss of
+  match (JSInit val args) =
+    case args of
       [] -> return ([], val)
-      (j:js) -> return ('\n' : indentString ++ indentString ++ j ++ ",\n" ++ indentString ++
-                        concatMap (\s -> indentString ++ s ++ ",\n" ++ indentString) js, val)
+      _ -> do
+           fields <- withIndent $ do
+                  jss <- forM args prettyPrintJS'
+                  indentString <- currentIndent
+                  return $ concatMap (\s -> s ++ ",\n") $ map (indentString ++) jss
+           indentString <- currentIndent
+           return ('\n' : fields ++ indentString, val)
   match _ = mzero
 
 typeOf :: Pattern PrinterState JS ((), JS)
