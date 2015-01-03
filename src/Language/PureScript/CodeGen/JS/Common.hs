@@ -30,7 +30,7 @@ import Language.PureScript.Names
 --  * Symbols are given a "__" suffix following their name or ordinal value.
 --
 identToJs :: Ident -> String
-identToJs (Ident name) | nameIsJsReserved name = name ++ "__"
+identToJs (Ident name) | nameIsJsReserved name = "_" ++ name ++ "_"
 identToJs (Ident name) = concatMap identCharToString name
 identToJs (Op op) = concatMap identCharToString op
 
@@ -47,27 +47,27 @@ identNeedsEscaping s = s /= identToJs (Ident s)
 identCharToString :: Char -> String
 identCharToString c | isAlphaNum c = [c]
 identCharToString '_' = "_"
-identCharToString '.' = "Dot__"
-identCharToString '$' = "Dollar__"
-identCharToString '~' = "Tilde__"
-identCharToString '=' = "Eq__"
-identCharToString '<' = "Less__"
-identCharToString '>' = "Greater__"
-identCharToString '!' = "Bang__"
-identCharToString '#' = "Hash__"
-identCharToString '%' = "Percent__"
-identCharToString '^' = "Up__"
-identCharToString '&' = "Amp__"
-identCharToString '|' = "Bar__"
-identCharToString '*' = "Times__"
-identCharToString '/' = "Div__"
-identCharToString '+' = "Plus__"
-identCharToString '-' = "Minus__"
-identCharToString ':' = "Colon__"
-identCharToString '\\' = "Backslash__"
-identCharToString '?' = "Qmark__"
-identCharToString '@' = "At__"
-identCharToString '\'' = "Prime"
+identCharToString '.' = "_dot"
+identCharToString '$' = "_dollar"
+identCharToString '~' = "_tilde"
+identCharToString '=' = "_eq"
+identCharToString '<' = "_less"
+identCharToString '>' = "_greater"
+identCharToString '!' = "_bang"
+identCharToString '#' = "_hash"
+identCharToString '%' = "_percent"
+identCharToString '^' = "_up"
+identCharToString '&' = "_amp"
+identCharToString '|' = "_bar"
+identCharToString '*' = "_times"
+identCharToString '/' = "_div"
+identCharToString '+' = "_plus"
+identCharToString '-' = "_minus"
+identCharToString ':' = "_colon"
+identCharToString '\\' = "_backslash"
+identCharToString '?' = "_qmark"
+identCharToString '@' = "_at"
+identCharToString '\'' = "_prime"
 identCharToString c = show (ord c) ++ "__"
 
 -- |

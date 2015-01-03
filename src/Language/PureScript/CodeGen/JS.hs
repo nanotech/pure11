@@ -23,8 +23,9 @@ module Language.PureScript.CodeGen.JS (
 ) where
 
 import Data.Function (on)
-import Data.List ((\\), delete, sortBy)
+import Data.List ((\\), delete, sortBy, isSuffixOf)
 import Data.Maybe (catMaybes, mapMaybe)
+import Data.Char (isUpper)
 
 import Control.Applicative
 import Control.Arrow ((&&&))
@@ -77,7 +78,6 @@ moduleToJs opts (Module name imps exps foreigns decls) = do
   where
     moduleName = case name of (ModuleName [ProperName "Main"]) -> "main"
                               _ -> unqual $ moduleNameToJs' name
-
 -- |
 -- Generates Javascript code for a module import.
 --
@@ -93,11 +93,11 @@ bindToJs mp modlvl (NonRec ident val) = do
   js <- valueToJs mp val
   return $ Just [JSVariableIntroduction (if modlvl then qname else identToJs ident) (Just js)]
   where
-    qname = runModuleName mp ++ "." ++ (capitalize $ identToJs ident)
+    qname = runModuleName mp ++ "." ++ identToJs ident
 bindToJs mp _ (Rec vals) = do
   jss <- forM vals $ \(ident, val) -> do
     js <- valueToJs mp val
-    return $ JSVariableIntroduction (capitalize $ identToJs ident) (Just js)
+    return $ JSVariableIntroduction (identToJs ident) (Just js)
   return $ Just jss
 
 -- |
@@ -113,7 +113,7 @@ var = JSVar . identToJs
 -- indexer is returned.
 --
 accessorString :: String -> JS -> JS
-accessorString prop = JSAccessor (capitalize . identToJs $ Ident prop)
+accessorString prop = JSAccessor $ typeclassPrefix ++ (identToJs $ Ident prop)
 
 mapAccessorString :: String -> JS -> JS
 mapAccessorString prop = JSIndexer (JSStringLiteral prop) . withCast anyMap
@@ -125,9 +125,9 @@ valueToJs :: (Functor m, Applicative m, Monad m) => ModuleName -> Expr Ann -> Su
 valueToJs m (Literal _ l) =
   literalToValueJS m l
 valueToJs m (Var (_, _, Just (IsConstructor _ 0)) name) =
-  return $ qualifiedToJS m id (withSuffix "_Ctor" name)
+  return $ qualifiedToJS m id (withSuffix ctorSuffix name)
 valueToJs m (Var (_, _, Just (IsConstructor _ _)) name) =
-  return $ qualifiedToJS m id (withSuffix "_Ctor" name)
+  return $ qualifiedToJS m id (withSuffix ctorSuffix name)
 valueToJs m (Accessor _ prop val) =
   case val of
     Var (_, Just (TypeApp (TypeConstructor _) (RCons _ _ _)), _) _ -> mapAccessorString prop <$> valueToJs m val
@@ -138,16 +138,16 @@ valueToJs m (ObjectUpdate _ o ps) = do
   extendObj obj sts
 valueToJs _ e@(Abs (_, _, Just IsTypeClassConstructor) _ val) =
   let args = unAbs e
-  in return $ JSData' "T_" (JSBlock $ map decl args)
+  in return $ JSData' "" (JSBlock $ map decl args)
   where
   unAbs :: Expr Ann -> [Ident]
   unAbs (Abs _ arg val) = arg : unAbs val
   unAbs _ = []
   decl :: Ident -> JS
-  decl name = JSVar . capitalize $ identToJs name ++ withSpace anyType
+  decl name = JSVar $ typeclassPrefix ++ identToJs name ++ withSpace anyType
 valueToJs m e@(Abs (_, _, Just IsNewtype) arg val) = -- TODO: revisit this
   let args = unAbs e
-  in return $ JSData' "D_" (JSBlock $ map decl args)
+  in return $ JSData' "" (JSBlock $ map decl args)
   where
   unAbs :: Expr Ann -> [Ident]
   unAbs (Abs _ arg val) = arg : unAbs val
@@ -159,7 +159,7 @@ valueToJs m (Abs (_, t, _) arg val) = do
   return $ JSFunction Nothing [identToJs arg ++ type' t] (JSBlock [JSReturn ret])
     where
       type' (Just (ForAll _ ty _)) = type' (Just ty)
-      type' (Just (ConstrainedType [((Qualified _ (ProperName name)),_)] _)) = withSpace ("T_" ++ name)
+      type' (Just (ConstrainedType [((Qualified _ (ProperName name)),_)] _)) = withSpace name
       type' _ = ""
 valueToJs m e@App{} = do
   let (f, args) = unApp e []
@@ -167,9 +167,9 @@ valueToJs m e@App{} = do
   case f of
     Var (_, _, Just IsNewtype) _ -> return (head args')
     Var (_, _, Just (IsConstructor _ arity)) name | arity == length args ->
-      return $ JSApp (JSVar $ withSuffix' "_Ctor" m name) args'
+      return $ JSApp (JSVar $ withSuffix' ctorSuffix m name) args'
     Var (_, _, Just IsTypeClassConstructor) name ->
-      return $ JSInit (JSVar $ withPrefix' "T_" m name) args'
+      return $ JSInit (JSVar $ unqualName name) args'
     _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> valueToJs m f
   where
   unApp :: Expr Ann -> [Expr Ann] -> (Expr Ann, [Expr Ann])
@@ -190,8 +190,8 @@ valueToJs _ (Constructor (_, _, Just IsNewtype) _ (ProperName ctor) _) =
                 JSFunction Nothing ["value"]
                   (JSBlock [JSReturn $ JSVar "value"]))])
 valueToJs _ (Constructor _ _ (ProperName ctor) 0) =
-  return $ JSBlock [ JSData' ("D_" ++ ctor) (JSBlock [])
-         , JSFunction (Just $ ctor ++ "_Ctor") [] (JSBlock [JSReturn (JSInit (JSVar $ "D_" ++ ctor) [])])
+  return $ JSBlock [ JSData' ctor (JSBlock [])
+         , JSFunction (Just $ ctor ++ ctorSuffix) [] (JSBlock [JSReturn (JSInit (JSVar ctor) [])])
          ]
 valueToJs _ (Constructor _ _ (ProperName ctor) arity) =
   return $ JSBlock [ makeConstructor ctor arity
@@ -202,14 +202,14 @@ valueToJs _ (Constructor _ _ (ProperName ctor) arity) =
     makeConstructor ctorName n =
       let args = [ "value" ++ show index | index <- [0..n-1] ]
           body = [ (JSVar $ arg ++ withSpace anyType) | arg <- args ]
-      in JSData' ("D_" ++ ctorName) (JSBlock body)
+      in JSData' ctorName (JSBlock body)
     go :: String -> Int -> Int -> [JS] -> JS
-    go pn _ 0 values = JSInit (JSVar $ "D_" ++ pn) (reverse values)
+    go pn _ 0 values = JSInit (JSVar pn) (reverse values)
     go pn index n values =
       JSFunction fname ["value" ++ show index]
         (JSBlock [JSReturn (go pn (index + 1) (n - 1) (JSVar ("value" ++ show index) : values))])
       where
-        fname = case index of 0 -> Just $ pn ++ "_Ctor"
+        fname = case index of 0 -> Just $ pn ++ ctorSuffix
                               _ -> Nothing
 
 literalToValueJS :: (Functor m, Applicative m, Monad m) => ModuleName -> Literal (Expr Ann) -> SupplyT m JS
@@ -252,8 +252,10 @@ varToJs m qual = qualifiedToJS m id qual
 --
 qualifiedToJS :: ModuleName -> (a -> Ident) -> Qualified a -> JS
 qualifiedToJS _ f (Qualified (Just (ModuleName [ProperName mn])) a) | mn == C.prim = JSVar . runIdent $ f a
-qualifiedToJS m f (Qualified (Just m') a) | m /= m' = JSVar $ moduleNameToJs m' ++ ('.' : capitalize (identToJs $ f a))
-qualifiedToJS _ f (Qualified _ a) = JSVar $ capitalize $ identToJs (f a)
+qualifiedToJS m f (Qualified (Just m') a)
+  | name@(x:xs) <- (identToJs $ f a),
+    not (isUpper x) = JSVar . (if m /= m' then (moduleNameToJs m' ++) . ('.' :) else id) $ modulePrefix ++ name
+qualifiedToJS _ f (Qualified _ a) = JSVar $ identToJs (f a)
 
 -- |
 -- Generate code in the simplified Javascript intermediate representation for pattern match binders
@@ -312,10 +314,9 @@ binderToJs m varName done (ConstructorBinder (_, _, Just (IsConstructor ctorType
     js <- binderToJs m argVar done'' binder
     return (JSVariableIntroduction argVar (Just (JSAccessor (parens (dtype) ++ "." ++ "value" ++ show index) (JSVar varName))) : js)
   (Qualified dmod (ProperName dname)) = d
-  dname' = "D_" ++ dname
   dtype = case dmod of
             Nothing -> dname
-            Just dmod' -> if dmod' == m then dname' else runModuleName dmod' ++ ('.' : dname')
+            Just dmod' -> if dmod' == m then dname else runModuleName dmod' ++ ('.' : dname)
 binderToJs m varName done binder@(ConstructorBinder _ _ ctor _) | isCons ctor = do
   let (headBinders, tailBinder) = uncons [] binder
       numberOfHeadBinders = fromIntegral $ length headBinders
@@ -376,14 +377,6 @@ isCons name = error $ "Unexpected argument in isCons: " ++ show name
 unqualName :: Qualified Ident -> String
 unqualName (Qualified _ (Ident name)) = name
 unqualName n = show n
-
-withPrefix :: String -> Qualified Ident -> Qualified Ident
-withPrefix prefix (Qualified n (Ident name)) = Qualified n (Ident $ prefix ++ name)
-
-withPrefix' :: String -> ModuleName -> Qualified Ident -> String
-withPrefix' prefix m (Qualified n (Ident name))
-  | n == Nothing || n == Just m = prefix ++ name
-  | (Just n') <- n = runModuleName n' ++ ('.' : prefix ++ name)
 
 withSuffix :: String -> Qualified Ident -> Qualified Ident
 withSuffix suffix (Qualified n (Ident name)) = Qualified n (Ident $ name ++ suffix)

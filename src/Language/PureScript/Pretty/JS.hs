@@ -27,7 +27,6 @@ import Control.PatternArrows
 import qualified Control.Arrow as A
 
 import Language.PureScript.CodeGen.JS.AST
-import Language.PureScript.CodeGen.JS.Common
 import Language.PureScript.Pretty.Common
 
 import Numeric
@@ -75,58 +74,63 @@ literals = mkPattern' match
     , return "}"
     ]
   match (JSVar ident) = return ident
-  match (JSVariableIntroduction ident value) = fmap concat $ sequence $
-    if ident == "Main.Main" then [return $ funcDecl ++ "main() {",
+  match (JSVariableIntroduction ident value) =
+    let atModLevel = '.' `elem` ident in
+    fmap concat $ sequence $
+    if ident == "Main.main" then [return $ funcDecl ++ "main() {",
                                   return "\n",
                                   maybe (return "") (fmap ("  " ++) . prettyPrintJS') value,
                                   return "\n",
                                   return $ "}"]
     else case value of
       (Just (JSFunction Nothing [arg] (JSBlock ret))) ->
-          if '.' `elem` ident then let arg' = argOnly arg
-                                       typ' = typeOnly arg in
-                                   [return funcDecl,
-                                    return (unqual ident),
-                                    return . parens $ arg' ++ withSpace anyType,
-                                    return " ",
-                                    return anyType, -- TODO: look for JSReturn and set accordingly?
-                                    return " ",
-                                    prettyPrintJS' . JSBlock $
-                                    if typ' == anyType
-                                      then ret
-                                      else [JSBlock (JSVariableIntroduction arg' (Just $ withCast typ' (JSVar arg')) : ret)]
-                                    ]
-                              else [return "var ",
-                                    return ident,
-                                    return $ withSpace funcDecl,
-                                    return (parens anyType),
-                                    return " ",
-                                    return anyType, -- TODO: look for JSReturn and set accordingly?
-                                    return "; ", -- TODO: line break and align
-                                    return ident,
-                                    maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
+          if atModLevel then let arg' = argOnly arg
+                                 typ' = typeOnly arg in
+                             [return funcDecl,
+                              return (modulePrefix ++ unqual ident),
+                              return . parens $ arg' ++ withSpace anyType,
+                              return " ",
+                              return anyType, -- TODO: look for JSReturn and set accordingly?
+                              return " ",
+                              prettyPrintJS' . JSBlock $
+                              if typ' == anyType
+                                then ret
+                                else [JSBlock (JSVariableIntroduction arg' (Just $ withCast typ' (JSVar arg')) : ret)]
+                              ]
+                        else [return "var ",
+                              return ident,
+                              return $ withSpace funcDecl,
+                              return (parens anyType),
+                              return " ",
+                              return anyType, -- TODO: look for JSReturn and set accordingly?
+                              return "; ", -- TODO: line break and align
+                              return ident,
+                              maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
 
       (Just (JSData' prefix fields)) ->
            [prettyPrintJS' (JSData' (prefix ++ unqual ident) fields)]
 
-      (Just (JSInit a b)) ->
+      (Just (JSInit a _)) ->
            [return "var ",
-            return (unqual ident),
+            return (modulePrefix ++ unqual ident),
             return " ",
             prettyPrintJS' a,
             return "\n",
             return $ funcDecl ++ "init() { ",
             return "\n",
-            return (unqual ident),
+            withIndent $ do
+              indentString <- currentIndent
+              return (indentString ++ modulePrefix ++ unqual ident),
             return " = ",
-            maybe (return "") prettyPrintJS' value,
+            withIndent $ maybe (return "") prettyPrintJS' value,
             return "\n",
             return "}",
             return "\n"]
 
       (Just (JSObjectLiteral [])) ->
            [return "var ",
-            return (unqual ident),
+            return $ if atModLevel then modulePrefix else "",
+            return $ unqual ident,
             return " ",
             return "struct{}"]
 
@@ -134,7 +138,8 @@ literals = mkPattern' match
            [return $ prettyPrintJS b]
 
       _ -> [return "var ",
-            return (unqual ident),
+            return $ if atModLevel then modulePrefix else "",
+            return $ unqual ident,
             maybe (return "") (fmap (" = " ++) . prettyPrintJS') value]
 
   match (JSAssignment target value) = fmap concat $ sequence
@@ -255,8 +260,12 @@ init' :: Pattern PrinterState JS (String, JS)
 init' = mkPattern' match
   where
   match (JSInit val args) = do
+    indentString <- currentIndent
     jss <- mapM prettyPrintJS' args
-    return (concatMap (\s -> s ++ ",\n") jss, val)
+    case jss of
+      [] -> return ([], val)
+      (j:js) -> return ('\n' : indentString ++ indentString ++ j ++ ",\n" ++ indentString ++
+                        concatMap (\s -> indentString ++ s ++ ",\n" ++ indentString) js, val)
   match _ = mzero
 
 typeOf :: Pattern PrinterState JS ((), JS)
@@ -321,7 +330,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ Wrap indexer $ \index val -> val ++ "[" ++ index ++ "]" ]
                   , [ Wrap app $ \args _ -> appFn ++ parens args ]
                   , [ Wrap app' $ \args val -> val ++ "(" ++ args ++ ")" ]
-                  , [ Wrap init' $ \args val -> val ++ "{\n" ++ args ++ "\n}" ]
+                  , [ Wrap init' $ \args val -> val ++ "{" ++ args ++ "}" ]
                   , [ unary JSNew "new " ]
                   , [ Wrap lam $ \(name, args) ret -> funcDecl
                         ++ fromMaybe "" name
@@ -340,7 +349,7 @@ prettyPrintJS' = A.runKleisli $ runPattern matchValue
                   , [ binary    GreaterThan          ">" ]
                   , [ binary    GreaterThanOrEqualTo ">=" ]
                   , [ Wrap typeOf $ \_ s -> "typeof " ++ s ]
-                  , [ AssocR instanceOf $ \v1 v2 -> typeOfExpr v1 ++ " == " ++ typeOfType ("D_" ++ v2) ]
+                  , [ AssocR instanceOf $ \v1 v2 -> typeOfExpr v1 ++ " == " ++ typeOfType v2 ]
 
                   , [ unary     Not                  "!" ]
                   , [ unary     BitwiseNot           "~" ]

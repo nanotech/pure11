@@ -1,7 +1,6 @@
 module Language.PureScript.CodeGen.Go where
 
 import Data.List
-import Data.Char
 
 import Language.PureScript.CodeGen.JS.AST
 import Language.PureScript.Pretty.Common
@@ -38,7 +37,7 @@ getSuper :: String
 getSuper = funcDecl ++ parens "" ++ withSpace anyType
 
 capitalize :: String -> String
-capitalize (x:xs) | isLower x = (toUpper x : xs)
+--capitalize (x:xs) | isLower x = (toUpper x : xs)
 capitalize s = s
 
 appFnDef :: [JS]
@@ -91,3 +90,12 @@ condition cond = case cond of
                    (JSBinary And a b) -> JSBinary And (condition a) (condition b)
                    (JSBinary Or a b)  -> JSBinary Or (condition a) (condition b)
                    _                  -> cond
+
+modulePrefix :: String
+modulePrefix = "M_"
+
+typeclassPrefix :: String
+typeclassPrefix = "T_"
+
+ctorSuffix :: String
+ctorSuffix = "_Ctor"
