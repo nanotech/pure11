@@ -31,8 +31,12 @@ import Language.PureScript.Names
 --
 identToJs :: Ident -> String
 identToJs (Ident name) | nameIsJsReserved name = "_" ++ name ++ "_"
+identToJs (Ident name) | (x:_) <- name, not (isLetter x) = lowercaseStart $ concatMap identCharToString name
 identToJs (Ident name) = concatMap identCharToString name
-identToJs (Op op) = concatMap identCharToString op
+identToJs (Op op) = lowercaseStart $ concatMap identCharToString op
+
+lowercaseStart :: String -> String
+lowercaseStart (x:xs) = (toLower x : xs)
 
 -- |
 -- Test if a string is a valid JS identifier without escaping.
@@ -47,27 +51,27 @@ identNeedsEscaping s = s /= identToJs (Ident s)
 identCharToString :: Char -> String
 identCharToString c | isAlphaNum c = [c]
 identCharToString '_' = "_"
-identCharToString '.' = "_dot"
-identCharToString '$' = "_dollar"
-identCharToString '~' = "_tilde"
-identCharToString '=' = "_eq"
-identCharToString '<' = "_less"
-identCharToString '>' = "_greater"
-identCharToString '!' = "_bang"
-identCharToString '#' = "_hash"
-identCharToString '%' = "_percent"
-identCharToString '^' = "_up"
-identCharToString '&' = "_amp"
-identCharToString '|' = "_bar"
-identCharToString '*' = "_times"
-identCharToString '/' = "_div"
-identCharToString '+' = "_plus"
-identCharToString '-' = "_minus"
-identCharToString ':' = "_colon"
-identCharToString '\\' = "_backslash"
-identCharToString '?' = "_qmark"
-identCharToString '@' = "_at"
-identCharToString '\'' = "_prime"
+identCharToString '.' = "Dot"
+identCharToString '$' = "Dollar"
+identCharToString '~' = "Tilde"
+identCharToString '=' = "Eq"
+identCharToString '<' = "Less"
+identCharToString '>' = "Greater"
+identCharToString '!' = "Bang"
+identCharToString '#' = "Hash"
+identCharToString '%' = "Percent"
+identCharToString '^' = "Up"
+identCharToString '&' = "Amp"
+identCharToString '|' = "Bar"
+identCharToString '*' = "Times"
+identCharToString '/' = "Div"
+identCharToString '+' = "Plus"
+identCharToString '-' = "Minus"
+identCharToString ':' = "Colon"
+identCharToString '\\' = "Backslash"
+identCharToString '?' = "Qmark"
+identCharToString '@' = "At"
+identCharToString '\'' = "Prime"
 identCharToString c = show (ord c) ++ "__"
 
 -- |
