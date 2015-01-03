@@ -170,7 +170,7 @@ valueToJs m e@App{} = do
       return $ JSApp (JSVar $ withSuffix' ctorSuffix m name) args'
     Var (_, _, Just IsTypeClassConstructor) name ->
       return $ JSInit (JSVar $ unqualName name) args'
-    _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> valueToJs m f
+    _ -> do fn <- valueToJs m f; return $ JSApp fn args'
   where
   unApp :: Expr Ann -> [Expr Ann] -> (Expr Ann, [Expr Ann])
   unApp (App _ val arg) args = unApp val (arg : args)

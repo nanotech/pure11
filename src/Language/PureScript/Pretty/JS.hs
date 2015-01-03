@@ -32,7 +32,7 @@ import Language.PureScript.Pretty.Common
 import Numeric
 
 import Language.PureScript.CodeGen.Go
-import Debug.Trace ()
+import Debug.Trace
 
 literals :: Pattern PrinterState JS String
 literals = mkPattern' match
@@ -243,9 +243,8 @@ app :: Pattern PrinterState JS (String, JS)
 app = mkPattern' match
   where
   match (JSApp val args) = do
-    fn <- prettyPrintJS' val
-    jss <- mapM prettyPrintJS' args
-    return (intercalate ", " (fn : jss), val)
+    jss <- mapM prettyPrintJS' (val:args)
+    return (intercalate ", " jss, val)
   match _ = mzero
 
 app' :: Pattern PrinterState JS (String, JS)
@@ -254,6 +253,9 @@ app' = mkPattern' match
   match (JSApp' val args) = do
     jss <- mapM prettyPrintJS' args
     return (intercalate ", " jss, val)
+  match (JSApp val@(JSFunction _ _ _) args) = do
+    jss <- mapM prettyPrintJS' args
+    return $ (intercalate ", " jss, val)
   match _ = mzero
 
 init' :: Pattern PrinterState JS (String, JS)

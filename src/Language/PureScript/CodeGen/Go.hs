@@ -25,7 +25,7 @@ noArgFunc :: String
 noArgFunc  = funcDecl ++ parens [] ++ withSpace anyType
 
 appFn :: String
-appFn = "AppFn"
+appFn = "ApplyFn"
 
 anyList :: String
 anyList = "[]" ++ anyType
