@@ -25,7 +25,7 @@ module Language.PureScript.CodeGen.JS (
 import Data.Function (on)
 import Data.List ((\\), delete, sortBy, isSuffixOf)
 import Data.Maybe (catMaybes, mapMaybe)
-import Data.Char (isUpper)
+import Data.Char (isLower)
 
 import Control.Applicative
 import Control.Arrow ((&&&))
@@ -254,7 +254,7 @@ qualifiedToJS :: ModuleName -> (a -> Ident) -> Qualified a -> JS
 qualifiedToJS _ f (Qualified (Just (ModuleName [ProperName mn])) a) | mn == C.prim = JSVar . runIdent $ f a
 qualifiedToJS m f (Qualified (Just m') a)
   | name@(x:xs) <- (identToJs $ f a),
-    not (isUpper x) = JSVar . (if m /= m' then (moduleNameToJs m' ++) . ('.' :) else id) $ modulePrefix ++ name
+    isLower x = JSVar . (if m /= m' then (moduleNameToJs m' ++) . ('.' :) else id) $ modulePrefix ++ name
 qualifiedToJS _ f (Qualified _ a) = JSVar $ identToJs (f a)
 
 -- |

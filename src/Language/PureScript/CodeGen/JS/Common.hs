@@ -30,7 +30,7 @@ import Language.PureScript.Names
 --  * Symbols are given a "__" suffix following their name or ordinal value.
 --
 identToJs :: Ident -> String
-identToJs (Ident name) | nameIsJsReserved name = "_" ++ name ++ "_"
+identToJs (Ident name) | nameIsJsReserved name = name ++ "_"
 identToJs (Ident name) | (x:_) <- name, not (isLetter x) = lowercaseStart $ concatMap identCharToString name
 identToJs (Ident name) = concatMap identCharToString name
 identToJs (Op op) = lowercaseStart $ concatMap identCharToString op
