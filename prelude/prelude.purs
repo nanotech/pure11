@@ -1,5 +1,7 @@
 module Prelude
   ( otherwise
+  , Int(..)
+  , Integer(..)
   , flip
   , const
   , asTypeOf
@@ -26,6 +28,10 @@ module Prelude
 
   otherwise :: Boolean
   otherwise = true
+
+  type Int = Number
+  type Integer = Number -- TODO: use proper bignum
+  -- TODO: define float type(s)
 
   flip :: forall a b c. (a -> b -> c) -> b -> a -> c
   flip f b a = f a b
