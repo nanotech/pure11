@@ -63,16 +63,17 @@ moduleToJs opts (Module name imps exps foreigns decls) = do
            , JSRaw ("")
            ]
              ++ jsImports
-             ++ (if moduleName == "Prelude" then (JSRaw ("type " ++ anyType ++ " interface{} // Type aliase for readability")
-                                                : JSRaw ("")
-                                                : appFnDef)
-                                            else [JSRaw ("import . \"Prelude\"")
-                                                , JSRaw ("")
-                                                , JSRaw ("var _ Any           // ignore unused package errors")
-                                                , JSRaw ("var _ Prelude.Any   //")
-                                                , JSRaw ("var _ reflect.Value //")
-                                                , JSRaw ("var _ fmt.Formatter //")
-                                                , JSRaw ("")])
+             ++ (if isPrelude name then
+                   (JSRaw ("type " ++ anyType ++ " interface{} // Type aliase for readability")
+                    : JSRaw ("")
+                    : appFnDef)
+                 else [JSRaw ("import . \"Prelude\"")
+                     , JSRaw ("")
+                     , JSRaw ("var _ Any           // ignore unused package errors")
+                     , JSRaw ("var _ Prelude.Any   //")
+                     , JSRaw ("var _ reflect.Value //")
+                     , JSRaw ("var _ fmt.Formatter //")
+                     , JSRaw ("")])
              ++ optimized
              ++ foreigns'
   where
@@ -253,8 +254,9 @@ varToJs m qual = qualifiedToJS m id qual
 qualifiedToJS :: ModuleName -> (a -> Ident) -> Qualified a -> JS
 qualifiedToJS _ f (Qualified (Just (ModuleName [ProperName mn])) a) | mn == C.prim = JSVar . runIdent $ f a
 qualifiedToJS m f (Qualified (Just m') a)
-  | name@(x:xs) <- (identToJs $ f a),
-    isLower x = JSVar . (if m /= m' then (moduleNameToJs m' ++) . ('.' :) else id) $ modulePrefix ++ name
+  | name@(x:xs) <- (identToJs $ f a), isLower x = JSVar . (if m /= m' && not (isPrelude m') then
+                                                             (moduleNameToJs m' ++) . ('.' :)
+                                                           else id) $ modulePrefix ++ name
 qualifiedToJS _ f (Qualified _ a) = JSVar $ identToJs (f a)
 
 -- |
@@ -385,3 +387,7 @@ withSuffix' :: String -> ModuleName -> Qualified Ident -> String
 withSuffix' suffix m full@(Qualified n (Ident name))
   | n == Just m = name ++ suffix
   | otherwise = show full ++ suffix
+
+isPrelude :: ModuleName -> Bool
+isPrelude (ModuleName [ProperName "Prelude"]) = True
+isPrelude _ = False
