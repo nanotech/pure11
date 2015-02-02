@@ -155,9 +155,9 @@ valueToJs m (ObjectUpdate _ o ps) = do
   obj <- valueToJs m o
   sts <- mapM (sndM (valueToJs m)) ps
   extendObj obj sts
-valueToJs m e@(Abs (_, _, _, Just IsTypeClassConstructor) _ _) =
+valueToJs m e@(Abs (_, _, z, Just IsTypeClassConstructor) _ _) =
   let args = unAbs e
-  in return $ JSSequence (toFn <$> args)
+  in return $ JSNamespace [] (toFn <$> args)
   where
   unAbs :: Expr Ann -> [(Ident, Maybe T.Type)]
   unAbs (Abs (_, _, ty, _) arg val) = (arg, ty) : unAbs val
@@ -203,10 +203,10 @@ valueToJs m e@App{} = do
                                                               ++ getAppSpecType m e (arity - length args + 1)) args'
     Var (_, _, ty, Just IsTypeClassConstructor) name'@(Qualified mn (Ident name)) -> do
       convArgs <- mapM (valueToJs m) (instFn name' args)
-      return $ JSSequence $ toVarDecl <$> zip (names ty) convArgs
+      return $ JSNamespace (rmType name) $ toVarDecl <$> zip (names ty) convArgs
 
     _ -> flip (foldl (\fn a -> JSApp fn [a])) args' <$> if typeinst $ head args then
-                                                          specialized' =<< valueToJs m f
+                                                          (specialized' f) =<< valueToJs m (traceShowId f)
                                                         else valueToJs m f
   where
   unApp :: Expr Ann -> [Expr Ann] -> (Expr Ann, [Expr Ann])
@@ -226,13 +226,22 @@ valueToJs m e@App{} = do
 
   typeinst :: Expr Ann -> Bool
   typeinst (Var (_, _, Nothing, Nothing) _) = True -- TODO: make sure this doesn't remove the wrong (untyped) args
+  typeinst (Accessor (_, _, Nothing, Nothing) _ v) = typeinst v
+  typeinst (App (_, _, Nothing, Nothing) _ v) = typeinst v
   typeinst _ = False
 
   instFn :: Qualified Ident -> [Expr Ann] -> [Expr Ann]
   instFn name = map $ convExpr (convType $ typeclassTypes e name)
 
-  specialized (JSVar name) = JSVar $ (rmType name) ++ templateSpec (declFnTy m e) (exprFnTy m e)
-  specialized' = pure . specialized
+  specialized :: Expr Ann -> JS -> JS
+  specialized f (JSVar name)
+    | Just typeclass <- getConstrained f = var $ qualifiedToStr m (Ident . runProperName) typeclass ++ "::"
+    | otherwise = var []
+    where
+      var prefix = JSVar $ prefix ++ rmType name ++ templateSpec (declFnTy m e) (exprFnTy m e)
+  specialized _ v = v
+
+  specialized' f = pure . specialized f
 
 valueToJs m (Var (_, _, ty, Just IsNewtype) ident) =
   return $ JSVar . mkDataFn $ qualifiedToStr m (mkUnique' . mkUnique') ident ++ (getSpecialization $ fnRetStr m ty)

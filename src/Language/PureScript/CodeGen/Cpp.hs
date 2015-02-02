@@ -414,4 +414,14 @@ skolemTo :: (String, T.Type) -> T.Type -> T.Type
 skolemTo (name', ty) (T.Skolem name _ _) | name == name' = ty
 skolemTo _ ty = ty
 
+getConstrained :: Expr Ann -> Maybe (Qualified ProperName)
+getConstrained (Var (_, _, Just ty, _) _)
+  | (T.ConstrainedType [(c, _)] _)  <- T.everywhereOnTypes onlyConstrained ty = Just c
+  where
+    onlyConstrained :: T.Type -> T.Type
+    onlyConstrained ty'@(T.ConstrainedType _ _) = ty'
+    onlyConstrained (T.ForAll _ ty' _) = onlyConstrained ty'
+    onlyConstrained _ = T.REmpty
+getConstrained _ = Nothing
+
 -----------------------------------------------------------------------------------------------------------------------

@@ -85,6 +85,9 @@ literals = mkPattern' match
         , prettyStatements sts
         ]
   match (JSVar ident) = return . filter (/='#') $ takeWhile (/='@') ident
+  match (JSVariableIntroduction name (Just (JSNamespace [] sts))) = fmap concat $ sequence
+    [ prettyPrintJS' (JSNamespace name sts)
+    ]
   match (JSVariableIntroduction _ (Just (JSNamespace name sts))) = fmap concat $ sequence
     [ prettyPrintJS' (JSNamespace name sts)
     ]
