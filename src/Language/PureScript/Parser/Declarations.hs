@@ -282,7 +282,8 @@ booleanLiteral :: TokenParser Bool
 booleanLiteral = (reserved "true" >> return True) P.<|> (reserved "false" >> return False)
 
 parseNumericLiteral :: TokenParser Expr
-parseNumericLiteral = NumericLiteral <$> number
+parseNumericLiteral = either (App fromIntegerFn . NumericLiteral . Left) (NumericLiteral . Right) <$> number
+  where fromIntegerFn = Var (Qualified Nothing (Ident "fromInteger"))
 
 parseStringLiteral :: TokenParser Expr
 parseStringLiteral = StringLiteral <$> stringLiteral

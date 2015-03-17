@@ -15,7 +15,7 @@ module Prelude
   , Monad, return, liftM1, ap
   , Semiring, (+), zero, (*), one
   , ModuloSemiring, (/), mod
-  , Ring, (-)
+  , Ring, (-), fromInteger
   , (%)
   , negate
   , DivisionRing
@@ -447,6 +447,7 @@ module Prelude
   -- |
   class (Semiring a) <= Ring a where
     (-) :: a -> a -> a
+    fromInteger :: Integer -> a
 
   negate :: forall a. (Ring a) => a -> a
   negate a = zero - a
@@ -525,8 +526,16 @@ module Prelude
     (*) = binary_mul_operator
     one = 1
 
+  foreign import number_fromInteger
+    """
+    inline auto number_fromInteger(long long n) -> double {
+      return static_cast<double>(n);
+    }
+    """ :: Integer -> Number
+
   instance ringNumber :: Ring Number where
     (-) = binary_sub_operator
+    fromInteger = number_fromInteger
 
   instance moduloSemiringNumber :: ModuloSemiring Number where
     (/) = binary_div_operator
@@ -874,8 +883,16 @@ module Prelude
     (*) = binary_mul_operator
     one = 1
 
+  foreign import int_fromInteger
+    """
+    inline auto int_fromInteger(long long n) -> int {
+      return static_cast<int>(n);
+    }
+    """ :: Integer -> Int
+
   instance ringInt :: Ring Int where
     (-) = binary_sub_operator
+    fromInteger = int_fromInteger
 
   instance moduloSemiringInt :: ModuloSemiring Int where
     (/) = binary_div_operator
@@ -903,8 +920,16 @@ module Prelude
     (*) = binary_mul_operator
     one = 1
 
+  foreign import integer_fromInteger
+    """
+    inline auto integer_fromInteger(long long n) -> long long {
+      return n;
+    }
+    """ :: Integer -> Integer
+
   instance ringInteger :: Ring Integer where
     (-) = binary_sub_operator
+    fromInteger = integer_fromInteger
 
   instance moduloSemiringInteger :: ModuloSemiring Integer where
     (/) = binary_div_operator
@@ -932,8 +957,16 @@ module Prelude
     (*) = binary_mul_operator
     one = 1
 
+  foreign import char_fromInteger
+    """
+    inline auto char_fromInteger(long long n) -> char {
+      return static_cast<char>(n);
+    }
+    """ :: Integer -> Char
+
   instance ringChar :: Ring Char where
     (-) = binary_sub_operator
+    fromInteger = char_fromInteger
 
   instance moduloSemiringChar :: ModuloSemiring Char where
     (/) = binary_div_operator

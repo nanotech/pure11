@@ -191,12 +191,6 @@ tyNumber :: Type
 tyNumber = primTy "Number"
 
 -- |
--- Type constructor for any integer-like type
---
-tyIntegral :: Type
-tyIntegral = primTy "Integral"
-
--- |
 -- Type constructor for machine-native integer
 --
 tyInt :: Type
